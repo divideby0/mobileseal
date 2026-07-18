@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "adhd": {
+      "source": "/Users/openclaw/src/divideby0/evie-agent",
+      "sourceType": "local",
+      "computedHash": "a676c1939f123475a3ca5aff3960f293ca653c9a50ecabf25b74aae44b686ce9"
+    },
+    "domain-modeling": {
+      "source": "/Users/openclaw/src/divideby0/evie-agent",
+      "sourceType": "local",
+      "computedHash": "6c69547c314340c49d14da031fbd734d5375f5576af97818b3a3407b76ccf615"
+    },
+    "goals": {
+      "source": "/Users/openclaw/src/divideby0/evie-agent",
+      "sourceType": "local",
+      "computedHash": "1ce9100f38b4ffce696d27f0a253c43495b715c1cc93ee7e24a1674c644999fc"
+    },
+    "grill-me": {
+      "source": "/Users/openclaw/src/divideby0/evie-agent",
+      "sourceType": "local",
+      "computedHash": "e56bb4c8a0ac19d255c1effd5986e14fc9931ae964c52d231ec19faf27bd8adf"
+    },
+    "handoff": {
+      "source": "/Users/openclaw/src/divideby0/evie-agent",
+      "sourceType": "local",
+      "computedHash": "bc3398bcedbe5eef6245249b7cead6820070d7c427f9007de5aa02ce96f42314"
+    }
+  }
+}

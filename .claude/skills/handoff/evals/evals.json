@@ -1,0 +1,59 @@
+{
+  "skill_name": "handoff",
+  "notes": "EVA-5 pilot eval set. Each prompt embeds the session narrative to mine (headless runs have no real conversation history — accepted pilot limitation). Prompts are identical across with_skill/without_skill arms; the with-skill runner prepends only the skill-path preamble. Assertions are graded programmatically by goals/EVA-5-skill-creator-guidelines-evals/evals/grade_runs.py.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "goal-folder-quick",
+      "prompt": "We're pausing here and a fresh session will pick this up, so capture everything from this working session in a handoff document. Create the handoff file in this repo wherever it belongs, structured so the next session can resume immediately without re-deriving anything.\n\nRecap of the session you are handing off (this is the material to mine — treat it as the session history):\n\nWe worked the rate-limiter goal (goals/ABC-9-rate-limiter-tuning/). In src/limiter.ts we raised DEFAULT_BURST from 10 to 25 and extracted the refill logic out of consume() into a standalone refill() function. In src/limiter.test.ts we added six jitter tests. Test suite currently: 12/14 passing — the two failures are both in 'jitter under load', timer drift of roughly 40ms. We first tried a sliding-window log implementation but rejected it: at 10k clients it needs ~80MB versus ~2MB for the token bucket. We also rejected a fixed-window counter because it allows burst spikes at window boundaries; final decision is token bucket with lazy refill. Along the way we discovered vitest fake timers do not advance performance.now() unless the shim option is enabled — that's exactly what the two failing tests trip over. I told you mid-session: 'stop adding config knobs — hardcode burst to 25 for now, we'll revisit'. Next steps we agreed: fix the two jitter tests using the vitest clock shim, then wire the limiter into the gateway middleware. Still open: whether the gateway needs per-route buckets or one global bucket.",
+      "expected_output": "A handoff markdown file under goals/ABC-9-rate-limiter-tuning/handoffs/ named handoff-<YYYYMMDD-HHmmSS>-<slug>.md, following the handoff template: chain header block (chain tag ABC-9-rate-limiter-tuning, seq 1, no parent), all required sections including User Feedback & Preferences and Self-Check, concrete numbers preserved (12/14, 40ms, 80MB vs 2MB), at or above the 150-line Quick floor.",
+      "files": [],
+      "expectations": [
+        "A handoff file exists at goals/ABC-9-rate-limiter-tuning/handoffs/ named handoff-<timestamp>-<slug>.md",
+        "The header block records the chain tag ABC-9-rate-limiter-tuning at seq 1",
+        "The header block records no parent (first in chain)",
+        "All required template sections are present (The Goal, Where We Are, What We Tried, Key Decisions, Evidence & Data, Files Changed, User Feedback & Preferences, Where We're Going, Risks & Blockers, Open Questions, Quick Start, Self-Check)",
+        "The 12/14 test measurement is preserved verbatim",
+        "The 'hardcode burst to 25 / stop adding config knobs' user correction is captured",
+        "The memory comparison (80MB vs 2MB) survives with real numbers",
+        "The file is at least 150 lines (Quick-pass floor)",
+        "The Self-Check section records the pass choice, line count, gap pass, completeness, and deliberate omissions"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "standalone-fallback",
+      "prompt": "We're stopping for the day and a fresh session will pick this up, so capture everything from this working session in a handoff document. Create the handoff file in this repo wherever it belongs, structured so the next session can resume immediately without re-deriving anything.\n\nRecap of the session you are handing off (this is the material to mine — treat it as the session history):\n\nThis was exploratory debugging, not attached to any tracked goal. We investigated the flaky integration-test timeouts on CI: 3 of the last 40 runs failed. Root cause: two CI jobs landing on the same runner collide on the shared Postgres container's fixed host port. Fix implemented in tests/integration/test-setup.ts — allocate an ephemeral port and retry container startup once; after the fix we got 25 consecutive green runs. We considered and rejected simply raising the test timeout from 30s to 120s: it masks the collision instead of fixing it and would slow every legitimate failure. You told me: 'don't touch the CI yaml, fix it in the test harness'. Remaining work: backport the fix to the release/2.3 branch, and check whether the nightly perf job uses the same shared container pattern.",
+      "expected_output": "A handoff markdown file under .claude/handoffs/ (repo-root fallback — no goal/loop folder exists) named handoff-<YYYYMMDD-HHmmSS>-<slug>.md, chain tag standalone-<hex> at seq 1, all required sections including User Feedback & Preferences and Self-Check, concrete numbers preserved (3 of 40, 25 consecutive, 30s->120s), at or above the 150-line Quick floor.",
+      "files": [],
+      "expectations": [
+        "A handoff file exists under .claude/handoffs/ (the no-goal fallback location) with the handoff-<timestamp>-<slug>.md naming",
+        "The chain tag is a standalone-<hex> tag (no goal folder exists to name the chain)",
+        "The header block records seq 1 with no parent",
+        "All required template sections are present including User Feedback & Preferences and Self-Check",
+        "The flake measurement (3 of the last 40 runs) is preserved",
+        "The verification measurement (25 consecutive green runs) is preserved",
+        "The rejected alternative (raising timeout 30s to 120s) is captured with its rejection rationale",
+        "The 'don't touch the CI yaml' user constraint is captured",
+        "The file is at least 150 lines (Quick-pass floor)"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "chain-continuation",
+      "prompt": "Context is running low, so before we stop, capture everything from this working session in a handoff document. Create the handoff file in this repo wherever it belongs, structured so the next session can resume immediately without re-deriving anything.\n\nRecap of the session you are handing off (this is the material to mine — treat it as the session history):\n\nWe continued the cache-layer goal (goals/ABC-7-cache-layer/) — this session picked up directly from the previous session's handoff in that goal's handoffs/ folder. What we did: implemented the TTL eviction tests that handoff called for — nine new tests in src/cache/ttl.test.ts, suite now 31/31 passing. We also renamed warmCacheOnBoot() to preloadCache() and moved it from the draft location into src/cache/preload.ts. We benchmarked the eviction sweep: 4.2ms per sweep with the naive scan, 0.8ms after switching to a lazy min-heap keyed on expiry — that heap approach is what we kept. Rejected: a periodic full-scan timer (simpler but O(n) every tick regardless of load). Nothing else from the previous plan was started. Open: whether preloadCache() should block readiness or warm in the background.",
+      "expected_output": "A second handoff in goals/ABC-7-cache-layer/handoffs/ continuing the chain: parent set to the existing handoff-20260712-091500-cache-layer.md, seq 2, a Since Last Handoff section comparing the parent's plan to what happened, a Stale References section flagging CacheMetricsReporter (named in the parent but absent from the codebase), all required sections including Self-Check, at or above the 150-line floor.",
+      "files": [],
+      "expectations": [
+        "A new handoff file is created in goals/ABC-7-cache-layer/handoffs/ alongside the existing parent",
+        "The header block names handoff-20260712-091500-cache-layer.md as parent at seq 2",
+        "A Since Last Handoff section is present (parent plan vs what actually happened)",
+        "A Stale References section flags CacheMetricsReporter, which the parent references but no longer resolves in the codebase",
+        "The 31/31 test measurement is preserved",
+        "The eviction-sweep benchmark (4.2ms to 0.8ms) is preserved with both numbers",
+        "All required template sections are present including User Feedback & Preferences and Self-Check",
+        "The file is at least 150 lines (Quick-pass floor)"
+      ]
+    }
+  ]
+}

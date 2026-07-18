@@ -1,0 +1,36 @@
+# evie-agent settings (project layer, committed).
+# Layering: built-in defaults -> ~/.evie-agent/settings.* -> this file ->
+# .evie-agent/settings.local.* (gitignored — credentials live there,
+# never in this file).
+#
+# Everything under tools.* is a capability with an engine behind it.
+# Enabled-only semantics: DEFINING a review tool block declares this
+# repo's contributors have that tool — a defined tool is part of review
+# waves and must be available. Machines with more tools define them in
+# .evie-agent/settings.local.yaml.
+tools:
+  review:
+    claude-code: { model: opus, effort: high }
+    codex: {}
+    sonarqube:
+      serverUrl: "http://localhost:9283/"
+      projectKey: "mobileseal"
+      token: "${EVIE_SONARQUBE_TOKEN}"
+    coderabbit:
+      apiKey: "${EVIE_CODERABBIT_API_KEY}"
+  research:
+    exa:
+      apiKey: "${EVIE_EXA_API_KEY}"
+  # Where goals promote: every project promotes somewhere different, so
+  # the goals skill reads these — never a hardcoded team. The ACTIVE
+  # tracker is whichever tools.tracker.* sub-block is defined (both
+  # defined errors at load).
+  # tracker:              # exactly ONE sub-block — linear or github
+  #   linear:
+  #     team: YOUR-TEAM-KEY
+  #     project: Your Project Name
+  #   github:
+  #     repo: owner/repo  # default: the origin remote's GitHub repo
+  #     keyPrefix: gh     # issue keys become gh-42 → gh-42-slug branches
+# Where setup stores prompted credentials (recorded by the wizard).
+secrets_store: envrc-local
