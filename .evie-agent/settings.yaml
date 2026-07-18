@@ -25,12 +25,10 @@ tools:
   # the goals skill reads these — never a hardcoded team. The ACTIVE
   # tracker is whichever tools.tracker.* sub-block is defined (both
   # defined errors at load).
-  # tracker:              # exactly ONE sub-block — linear or github
-  #   linear:
-  #     team: YOUR-TEAM-KEY
-  #     project: Your Project Name
-  #   github:
-  #     repo: owner/repo  # default: the origin remote's GitHub repo
-  #     keyPrefix: gh     # issue keys become gh-42 → gh-42-slug branches
+  tracker:
+    linear:
+      team: CED
+      project: Mobileseal
+      apiKey: "${EVIE_LINEAR_API_KEY}"
 # Where setup stores prompted credentials (recorded by the wizard).
 secrets_store: envrc-local
