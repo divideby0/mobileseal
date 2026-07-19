@@ -1,0 +1,30 @@
+---
+id: _default/chunk-size-for-encrypted-media-cas
+title: Chunk Size for Encrypted Media CAS
+status: completed
+format: report
+query: For a content-addressed store of independently-AEAD-encrypted chunks (XChaCha20-Poly1305) serving photo libraries and seekable video playback through AVAssetResourceLoaderDelegate on iOS: what chunk sizes do comparable systems use and why? Survey Cryptomator, restic/borg (CDC ranges), IPFS (256 KiB), Tahoe-LAFS segments, S3 multipart norms, and HLS byte-range practice; trade-offs among scrub-seek latency, per-request overhead, object-count bloat at cloud storage, and memory footprint on device; whether 4 MiB fixed is a sound default for mixed photo/video personal libraries.
+runId: agent_run_6e34a1a22cf04fb6a28e91fa2825dceb
+tags: []
+createdAt: 2026-07-19T18:21:32.250Z
+started: 2026-07-19T18:22:13.645Z
+completed: 2026-07-19T18:23:14.256Z
+---
+
+# Report
+
+## Executive Summary
+
+**Comparable systems cluster by purpose.** Cryptomator chooses very small 32 KiB encrypted file-content chunks, with each chunk carrying a nonce, ciphertext, and tag, which optimizes random access inside a virtual encrypted file but would explode object counts if each chunk were stored as a separate cloud object in a content-addressed store. Restic’s CDC implementation targets about 1 MiB chunks with 512 KiB and 8 MiB bounds in its [chunker code](https://github.com/restic/chunker/blob/master/chunker.go), while Borg defaults to 512 KiB minimum, 8 MiB maximum, and about 2 MiB statistical chunks in its [internals documentation](https://borgbackup.readthedocs.io/en/1.0.3/internals.html); those backup systems are optimizing deduplication, index size, compression, and incremental-change locality rather than low-latency media scrubbing.
+
+**Distributed and streaming systems skew smaller for alacrity and interoperability.** IPFS historically used 256 KiB UnixFS blocks and now recommends producers stay at or below 1 MiB for interoperability in the [UnixFS specification](https://specs.ipfs.tech/unixfs/), because blocks are the retrieval, validation, and DAG traversal unit. Tahoe-LAFS uses 128 KiB default segments, and its [file encoding spec](https://tahoe-lafs.readthedocs.io/en/stable/specifications/file-encoding.html) states the core trade-off directly: larger segments reduce overhead but increase memory footprint and “alacrity,” meaning the bytes that must arrive before validated plaintext can be delivered. HLS expresses the same principle in time rather than bytes: Apple describes typical 5–10 second media segments in its [HLS overview](https://developer.apple.com/library/archive/referencelibrary/GettingStarted/AboutHTTPLiveStreaming/about/about.html), and its byte-range examples consolidate many logical segments into larger files to reduce file-management overhead while preserving playable ranges via [byte-range segments](https://developer.apple.com/library/archive/technotes/tn2288/_index.html).
+
+**Cloud object economics push upward.** S3 multipart upload is not a content chunking scheme, but it gives a useful floor for cloud-facing part granularity: S3 multipart parts must be 5 MiB to 5 GiB except the last part, with at most 10,000 parts according to the [multipart limits](https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html). AWS also charges requests by count, and its storage guidance notes that API costs for GET, PUT, LIST, and HEAD can become material when object counts or access rates are high. A 256 KiB design creates sixteen times as many objects and sixteen times as many cold GETs as 4 MiB for the same video corpus, which is a poor fit for personal libraries stored in object backends unless those small blocks are packed.
+
+**For independently AEAD-encrypted chunks, 4 MiB is a defensible compromise.** XChaCha20-Poly1305 is comfortable encrypting many independently nonce-protected messages, and libsodium’s [XChaCha20 guidance](https://doc.libsodium.org/doc/secret-key_cryptography/aead/chacha20-poly1305/xchacha20-poly1305_construction) emphasizes its 192-bit nonce support for random nonces. The cryptographic overhead is tiny at 4 MiB, while device-memory overhead remains manageable: one decrypted 4 MiB chunk plus ciphertext, metadata, and a small prefetch window is acceptable on modern iOS devices. The main cost is seek granularity: a random AVAssetResourceLoader request that crosses chunk boundaries may need one or two full-chunk object reads and AEAD verifications before returning a much smaller requested byte range.
+
+## Conclusion
+
+**A 4 MiB fixed chunk is sound, but only as a storage-object default.** For mixed personal photo/video libraries, 4 MiB sits between backup CDC systems that average 1–2 MiB with 8 MiB caps and cloud multipart practice that starts at 5 MiB; it avoids Cryptomator/IPFS/Tahoe-style tiny blocks where a 100 GB library becomes hundreds of thousands of objects. The trade is that arbitrary video seeking through AVAssetResourceLoader may require fetching, authenticating, and buffering as much as one 4 MiB chunk before satisfying a small byte range, whereas Apple’s loader explicitly requests byte ranges and expects delegates to support arbitrary range access for media via its [byte-range flag](https://developer.apple.com/documentation/avfoundation/avassetresourceloadingcontentinformationrequest/isbyterangeaccesssupported).
+
+**Use 4 MiB with a streaming-aware read path, not blindly everywhere.** I would keep 4 MiB fixed for encrypted content-addressed blob objects, align video chunk boundaries to codec/keyframe-aware indexes when possible, prefetch adjacent chunks during sequential playback, and cache decrypted chunks in an LRU bounded by device memory. If scrub latency on cellular is a first-order product goal, use a video profile closer to 1–2 MiB while retaining 4 MiB for photos and noninteractive blobs; if cloud object count and LIST/PUT/GET costs dominate, 4 MiB is a better default than 256 KiB or 512 KiB and still small enough to keep per-request overfetch tolerable for personal libraries.
