@@ -1,7 +1,11 @@
 ---
-status: draft
+status: promoted
 created: 2026-07-18T16:41:18-05:00
 author: cedric
+promoted: 2026-07-19T13:38:51-05:00
+issue_url: https://linear.app/cedric-personal/issue/CED-10/build-vaultcore-encryption-and-chunk-store
+linear_project: Mobileseal
+linear_project_id: cccebfd8-6d19-474b-852f-c87bf528dcf6
 ---
 
 # Build VaultCore Encryption and Chunk Store
