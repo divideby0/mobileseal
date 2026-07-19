@@ -28,6 +28,11 @@ final class GridScrollPerfUITests: XCTestCase {
             "-mobileseal-uitest",
             "-mobileseal-uitest-container", "perf-\(UUID().uuidString.prefix(8))",
             "-mobileseal-uitest-reset", "1",
+            // Seeding 500 items takes minutes with no user interaction
+            // — the 5-minute idle backstop would (correctly) lock the
+            // vault mid-seed. Launch-argument defaults disable it for
+            // this measurement run only.
+            "-lock.idleTimeoutSeconds", "0",
         ]
         app.launch()
 
@@ -46,22 +51,19 @@ final class GridScrollPerfUITests: XCTestCase {
         XCTAssertTrue(seed.waitForExistence(timeout: 60))
         seed.tap()
 
+        // Seeding runs asynchronously (≈1000 WAL commits); the
+        // toolbar's item-count element is the completion signal —
+        // visible cell counts cannot observe off-screen population.
+        let count = app.staticTexts["item-count"]
+        XCTAssertTrue(count.waitForExistence(timeout: 30))
+        let deadline = Date().addingTimeInterval(540)
+        while Date() < deadline, count.label != "500" {
+            Thread.sleep(forTimeInterval: 5)
+        }
+        XCTAssertEqual(count.label, "500", "seed did not reach 500 items in time")
+
         let grid = app.collectionViews["photo-grid"]
         XCTAssertTrue(grid.waitForExistence(timeout: 30))
-        // Seeding runs asynchronously; wait for the full population by
-        // polling the diffable snapshot through the cell count climb.
-        let deadline = Date().addingTimeInterval(300)
-        var settled = false
-        while Date() < deadline {
-            if app.cells.count >= 400 || grid.descendants(matching: .cell).count >= 400 {
-                settled = true
-                break
-            }
-            Thread.sleep(forTimeInterval: 2)
-        }
-        // Cell counts only report on-screen cells for collection
-        // views; fall back to time-based settling.
-        if !settled { Thread.sleep(forTimeInterval: 10) }
 
         // Instrumented scroll: several fast swipes (drag + fling),
         // letting deceleration finish so the display link captures

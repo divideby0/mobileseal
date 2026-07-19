@@ -80,6 +80,18 @@ struct GalleryView: View {
                         .padding()
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if UITestSupport.isUITestMode {
+                    // Machine-readable item count: the perf test's
+                    // seed-completion signal (visible cell counts
+                    // cannot observe off-screen population).
+                    Text("\(store.items.count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(4)
+                        .accessibilityIdentifier("item-count")
+                }
+            }
             .sheet(isPresented: $showPicker) {
                 PhotoPicker { providers in
                     showPicker = false
