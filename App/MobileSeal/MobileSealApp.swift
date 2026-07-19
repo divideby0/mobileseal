@@ -29,7 +29,8 @@ struct MobileSealApp: App {
             container = try! AppContainer.standard()
         }
         let coordinator = VaultCoordinator(container: container)
-        _store = State(initialValue: VaultStore(coordinator: coordinator))
+        _store = State(
+            initialValue: VaultStore(coordinator: coordinator, container: container))
     }
 
     var body: some Scene {

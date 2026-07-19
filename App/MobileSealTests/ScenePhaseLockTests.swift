@@ -17,7 +17,7 @@ import VaultCore
         let container = try TestSupport.makeContainer()
         let coordinator = VaultCoordinator(
             container: container, calibration: TestSupport.fastCalibration)
-        let store = VaultStore(coordinator: coordinator)
+        let store = VaultStore(coordinator: coordinator, container: container)
         await store.bootstrap()
         _ = await TestSupport.waitUntil { store.phase == .needsSetup }
         store.createGallery(password: UnlockedVault.password)

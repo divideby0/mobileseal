@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var store: VaultStore
     @Environment(\.dismiss) private var dismiss
+    @State private var calibration: KDFCalibrator.Record?
 
     var body: some View {
         NavigationStack {
@@ -46,6 +47,40 @@ struct SettingsView: View {
                         "Face ID unlock is deferred until the vault core grows a custody-respecting biometric token API."
                     )
                 }
+
+                // Device Argon2id calibration record (GOAL WS D.4 /
+                // gate 6): the numbers the device benchmark
+                // transcribes into RESULT.md.
+                if let calibration {
+                    Section("Key-Derivation Calibration") {
+                        LabeledContent(
+                            "Chosen parameters",
+                            value:
+                                "\(calibration.chosenOpslimit) ops / \(calibration.chosenMemlimitMiB) MiB"
+                        )
+                        ForEach(
+                            calibration.medians.sorted(by: { $0.key < $1.key }), id: \.key
+                        ) { key, median in
+                            LabeledContent(
+                                "Median \(key)",
+                                value: String(format: "%.3f s", median))
+                        }
+                        LabeledContent("Thermal state", value: calibration.thermalState)
+                        if let mem = calibration.availableMemoryMiB {
+                            LabeledContent("Free memory at run", value: "\(mem) MiB")
+                        }
+                        LabeledContent(
+                            "Build", value: calibration.releaseBuild ? "release" : "debug")
+                        if let reason = calibration.fallbackReason {
+                            LabeledContent("Fallback", value: reason)
+                                .font(.caption)
+                        }
+                    }
+                    .accessibilityIdentifier("calibration-record")
+                }
+            }
+            .task {
+                calibration = store.loadCalibrationRecord()
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

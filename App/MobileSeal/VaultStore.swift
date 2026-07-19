@@ -10,6 +10,7 @@ import VaultCore
 @Observable
 final class VaultStore: VaultUISink {
     let coordinator: VaultCoordinator
+    private let coordinatorContainer: AppContainer
     let thumbnails = ThumbnailPipeline()
 
     private(set) var phase: VaultPhase = .starting
@@ -34,8 +35,9 @@ final class VaultStore: VaultUISink {
     private var backgroundedAt: Date?
     private var idleTask: Task<Void, Never>?
 
-    init(coordinator: VaultCoordinator) {
+    init(coordinator: VaultCoordinator, container: AppContainer) {
         self.coordinator = coordinator
+        self.coordinatorContainer = container
     }
 
     func bootstrap() async {
@@ -167,6 +169,14 @@ final class VaultStore: VaultUISink {
 
     func importFinished(_ summary: ImportSummary) {
         lastImportSummary = summary
+    }
+
+    /// The persisted calibration record (WS D.4) for the Settings
+    /// display — the device benchmark's data source.
+    func loadCalibrationRecord() -> KDFCalibrator.Record? {
+        let url = coordinatorContainer.vaultRoot.appendingPathComponent("calibration.json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(KDFCalibrator.Record.self, from: data)
     }
 
     func markDamaged(_ fileID: FileID) {
