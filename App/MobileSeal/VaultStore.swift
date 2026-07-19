@@ -120,11 +120,11 @@ final class VaultStore: VaultUISink {
         lastInteraction = Date()
     }
 
-    func startIdleWatch() {
+    func startIdleWatch(pollInterval: Duration = .seconds(15)) {
         idleTask?.cancel()
         idleTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(15))
+                try? await Task.sleep(for: pollInterval)
                 guard let self else { return }
                 let timeout = self.lockPreferences.idleTimeout
                 guard timeout > 0, self.phase.isUnlocked, !self.shielded else { continue }

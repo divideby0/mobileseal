@@ -21,6 +21,9 @@ struct MobileSealApp: App {
                 for: .applicationSupportDirectory, in: .userDomainMask,
                 appropriateFor: nil, create: true
             ).appendingPathComponent("UITest-\(name)", isDirectory: true)
+            if UITestSupport.wantsReset {
+                try? FileManager.default.removeItem(at: base)
+            }
             container = try! AppContainer(base: base)
         } else {
             container = try! AppContainer.standard()

@@ -20,6 +20,12 @@ enum UITestSupport {
         UserDefaults.standard.string(forKey: "mobileseal-uitest-container")
     }
 
+    /// Present → the override container is deleted before use (each
+    /// e2e test starts from a clean vault).
+    static var wantsReset: Bool {
+        UserDefaults.standard.bool(forKey: "mobileseal-uitest-reset")
+    }
+
     /// The committed fixture batch (bundled under Fixtures/): sorted
     /// by name for deterministic ordering — mixed JPEG/HEIC, with the
     /// deliberately corrupt member LAST so the forced per-item

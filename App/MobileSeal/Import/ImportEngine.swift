@@ -163,6 +163,10 @@ struct ImportEngine: Sendable {
             parts = try await provider.stageParts(into: itemDir)
         } catch is CancellationError {
             return ImportOutcome(index: index, name: name, status: .notAttempted)
+        } catch MediaProviderError.cancelled {
+            // The user cancelled THIS item's load — skip it without
+            // failing the batch (distinct from batch cancellation).
+            return ImportOutcome(index: index, name: name, status: .notAttempted)
         } catch let error as MediaProviderError {
             return fail(.providerFailed(String(describing: error)))
         } catch {

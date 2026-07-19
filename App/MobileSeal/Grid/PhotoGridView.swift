@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 import UIKit
 import VaultCore
@@ -122,6 +123,58 @@ struct PhotoGridView: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             parent.onScroll()
+        }
+
+        // MARK: scroll-perf instrumentation (gate 3)
+
+        // CADisplayLink frame-gap tracking while scrolling, active in
+        // UI-test mode only; results surface through the collection
+        // view's accessibilityValue for the perf test to read, and an
+        // os_signpost interval brackets each scroll for Instruments.
+        private var displayLink: CADisplayLink?
+        private var lastFrameTimestamp: CFTimeInterval = 0
+        private var frameCount = 0
+        private var hitchCount = 0
+        private var maxGapMs = 0.0
+        private weak var instrumentedScrollView: UIScrollView?
+        private var signpostState: OSSignpostIntervalState?
+        private static let signposter = OSSignposter(
+            subsystem: "com.gmail.cedric.hurst.mobileseal", category: "grid-scroll")
+
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            guard UITestSupport.isUITestMode, displayLink == nil else { return }
+            instrumentedScrollView = scrollView
+            lastFrameTimestamp = 0
+            let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+            signpostState = Self.signposter.beginInterval("scroll")
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            guard let link = displayLink else { return }
+            link.invalidate()
+            displayLink = nil
+            if let state = signpostState {
+                Self.signposter.endInterval("scroll", state)
+                signpostState = nil
+            }
+            scrollView.accessibilityValue = String(
+                format: "frames=%d hitches=%d maxGapMs=%.1f",
+                frameCount, hitchCount, maxGapMs)
+        }
+
+        @objc private func frame(_ link: CADisplayLink) {
+            if lastFrameTimestamp > 0 {
+                let gap = (link.timestamp - lastFrameTimestamp) * 1000
+                frameCount += 1
+                maxGapMs = max(maxGapMs, gap)
+                // Hitch: the frame arrived more than 1.5 refresh
+                // intervals after the previous one.
+                let expected = link.duration * 1000
+                if gap > expected * 1.5 { hitchCount += 1 }
+            }
+            lastFrameTimestamp = link.timestamp
         }
     }
 }

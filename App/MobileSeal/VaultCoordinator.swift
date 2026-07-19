@@ -89,10 +89,20 @@ protocol VaultUISink: AnyObject, Sendable {
 /// with `Optional.take()` only inside actor-isolated methods; no task
 /// closure ever captures it.
 actor VaultCoordinator {
+    /// Calibration seam: unit tests inject fast KDF params instead of
+    /// paying real multi-second Argon2id measurement; UI-test mode
+    /// uses the format floor so the scripted e2e stays quick.
+    typealias CalibrationRunner = @Sendable (URL) -> (KDFParams, KDFCalibrator.Record)
+
     private let container: AppContainer
+    private let calibration: CalibrationRunner
     private weak var sink: (any VaultUISink)?
 
     private var session: UnlockSession?
+    /// Mirrors whether `session` holds a value — pattern-matching a
+    /// noncopyable Optional in reference storage is a consume, so the
+    /// debug probe tracks liveness separately.
+    private var sessionLive = false
     private var gallery: Gallery?
     private var galleryDirectory: URL?
     private var index = MediaIndex()
@@ -101,8 +111,22 @@ actor VaultCoordinator {
     private var importTask: Task<Void, Never>?
     private(set) var phase: VaultPhase = .starting
 
-    init(container: AppContainer) {
+    init(container: AppContainer, calibration: CalibrationRunner? = nil) {
         self.container = container
+        if let calibration {
+            self.calibration = calibration
+        } else if UITestSupport.isUITestMode {
+            self.calibration = { _ in
+                var record = KDFCalibrator.Record(
+                    date: Date(), chosenOpslimit: 1, chosenMemlimitMiB: 16,
+                    fallbackReason: "uitest fast params", thermalState: "n/a",
+                    availableMemoryMiB: nil, releaseBuild: KDFCalibrator.isReleaseBuild)
+                record.medians = [:]
+                return (KDFParams(opslimit: 1, memlimit: 16 << 20), record)
+            }
+        } else {
+            self.calibration = { KDFCalibrator.calibrate(scratchDir: $0) }
+        }
     }
 
     func attach(sink: any VaultUISink) async {
@@ -134,7 +158,7 @@ actor VaultCoordinator {
 
         let scratch = container.stagingDir
             .appendingPathComponent("calibration-\(UUID().uuidString)", isDirectory: true)
-        let (params, record) = KDFCalibrator.calibrate(scratchDir: scratch)
+        let (params, record) = calibration(scratch)
         persistCalibrationRecord(record)
 
         do {
@@ -197,6 +221,7 @@ actor VaultCoordinator {
         }
 
         session = consume s
+        sessionLive = true
         gallery = g
         index = MediaIndex()
         phase = .unlocked(importing: false)
@@ -328,6 +353,43 @@ actor VaultCoordinator {
         }
     }
 
+    // MARK: - UI-test seeding (gate 3's 500-photo fixture gallery)
+
+    /// Seeds `count` unique originals + thumbnails directly through
+    /// the Gallery actor — the scroll-performance gate needs volume,
+    /// not provider fidelity. Unique bytes come from an index suffix
+    /// appended after the JPEG EOI marker (decoders ignore trailing
+    /// bytes; the dedup hash does not).
+    func seedGallery(count: Int) async {
+        guard case .unlocked = phase, let gallery else { return }
+        guard
+            let baseURL = Bundle.main.resourceURL?
+                .appendingPathComponent("Fixtures/fixture-0000.jpg"),
+            let baseData = try? Data(contentsOf: baseURL),
+            let thumb = try? Thumbnailer.makeThumbnail(from: baseData)
+        else { return }
+        let calendar = Calendar(identifier: .gregorian)
+        let epoch = calendar.date(from: DateComponents(year: 2020, month: 1, day: 1)) ?? Date()
+        for i in 0..<count {
+            var bytes = [UInt8](baseData)
+            bytes.append(contentsOf: Array("seed-\(i)".utf8))
+            var meta = MediaMetadata(kind: .original, importedAt: Date())
+            meta.filename = "seed-\(i).jpg"
+            meta.uti = "public.jpeg"
+            meta.contentHash = "seed-\(i)"
+            meta.dateTaken = calendar.date(byAdding: .hour, value: i * 7, to: epoch)
+            do {
+                let id = try await gallery.importBytes(bytes, metadata: meta.encoded())
+                var thumbMeta = MediaMetadata(kind: .thumbnail, importedAt: Date())
+                thumbMeta.parent = id.description
+                thumbMeta.uti = "public.jpeg"
+                _ = try await gallery.importBytes(thumb.bytes, metadata: thumbMeta.encoded())
+            } catch {
+                return
+            }
+        }
+    }
+
     // MARK: - Lock (GOAL WS D, Codex B5)
 
     /// The one lock path: cancel children, purge the index, consume
@@ -361,6 +423,7 @@ actor VaultCoordinator {
         if let live = session.take() {
             live.lock(drainDeadline: drainDeadline)
         }
+        sessionLive = false
         container.wipeStaging()
         phase = .locked
         await publishPhase()
@@ -403,6 +466,20 @@ actor VaultCoordinator {
         default:
             return nil
         }
+    }
+
+    // MARK: - test hooks
+
+    /// The live Gallery actor (nil unless unlocked) — recovery tests
+    /// commit crash-window states directly through it.
+    func debugGallery() -> Gallery? { gallery }
+
+    /// Gate 5: after lock, no child survives — session consumed,
+    /// gallery dropped, snapshot + import tasks cancelled and cleared,
+    /// index purged.
+    func debugChildrenAreTornDown() -> Bool {
+        !sessionLive && gallery == nil && snapshotTask == nil && importTask == nil
+            && index.isEmpty && latestSnapshot == nil
     }
 
     // MARK: - plumbing

@@ -52,6 +52,12 @@ struct GalleryView: View {
                                 providers: UITestSupport.fixtureBatchProviders())
                         }
                         .accessibilityIdentifier("import-fixtures-button")
+                        // Gate 3's 500-photo fixture gallery, seeded
+                        // directly for scroll-perf measurement.
+                        Button("Seed 500") {
+                            Task { await store.coordinator.seedGallery(count: 500) }
+                        }
+                        .accessibilityIdentifier("seed-gallery-button")
                     }
                     Button {
                         showSettings = true
@@ -148,6 +154,13 @@ struct ImportSummaryView: View {
                     LabeledContent("Imported", value: "\(summary.importedCount)")
                     LabeledContent("Skipped (duplicates)", value: "\(summary.skippedCount)")
                     LabeledContent("Failed", value: "\(summary.failedCount)")
+                    // Machine-readable line for the scripted e2e gate.
+                    Text(
+                        "imported=\(summary.importedCount) skipped=\(summary.skippedCount) failed=\(summary.failedCount) interrupted=\(summary.interrupted)"
+                    )
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("summary-line")
                 }
                 Section("Items") {
                     ForEach(summary.outcomes, id: \.index) { outcome in

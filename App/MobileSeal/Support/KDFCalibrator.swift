@@ -54,14 +54,16 @@ enum KDFCalibrator {
     /// timings without multi-second KDF runs.
     static func calibrate(
         scratchDir: URL,
-        measure: (KDFParams) throws -> TimeInterval = realMedianOf5
+        measure: (KDFParams) throws -> TimeInterval = realMedianOf5,
+        headroom: Int64? = availableMemoryBytes(),
+        thermal: ProcessInfo.ThermalState = ProcessInfo.processInfo.thermalState
     ) -> (KDFParams, Record) {
         var record = Record(
             date: Date(),
             chosenOpslimit: moderate.opslimit,
             chosenMemlimitMiB: moderate.memlimit >> 20,
-            thermalState: thermalStateName(),
-            availableMemoryMiB: availableMemoryBytes().map { $0 >> 20 },
+            thermalState: thermalStateName(thermal),
+            availableMemoryMiB: headroom.map { $0 >> 20 },
             releaseBuild: isReleaseBuild)
         defer { try? FileManager.default.removeItem(at: scratchDir) }
 
@@ -73,9 +75,8 @@ enum KDFCalibrator {
         }
 
         // Gate: thermal.
-        let thermal = ProcessInfo.processInfo.thermalState
         guard thermal == .nominal || thermal == .fair else {
-            return fallback("thermal state \(thermalStateName()) — headroom absent")
+            return fallback("thermal state \(thermalStateName(thermal)) — headroom absent")
         }
 
         // Measure MODERATE.
@@ -89,7 +90,6 @@ enum KDFCalibrator {
 
         // Pick the largest candidate predicted ≤ envelope upper bound
         // with 2× memory headroom.
-        let headroom = availableMemoryBytes()
         var pick = moderate
         var predicted = baseMedian
         for candidate in ladder.dropFirst() {
@@ -168,8 +168,10 @@ enum KDFCalibrator {
         #endif
     }
 
-    static func thermalStateName() -> String {
-        switch ProcessInfo.processInfo.thermalState {
+    static func thermalStateName(
+        _ state: ProcessInfo.ThermalState = ProcessInfo.processInfo.thermalState
+    ) -> String {
+        switch state {
         case .nominal: return "nominal"
         case .fair: return "fair"
         case .serious: return "serious"
