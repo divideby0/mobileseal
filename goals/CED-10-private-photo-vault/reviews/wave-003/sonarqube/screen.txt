@@ -1,0 +1,23 @@
+\u2500\u2500 open issues (also written to FINDINGS.md)
+ \u2500\u2500
+# SonarQube findings
+
+Ephemeral project: mobileseal-CED-10-private-photo-vau
+lt (per-branch isolation, EVA-11;
+deleted at merge cleanup). Scan processed as compute t
+ask 4df5e801-2cf6-4178-ab04-2ea0cfe9ee90.
+
+Scope note: this is the OPEN snapshot of that project
+after scanning
+this checkout; changed files outside the scan sources
+are not covered.
+
+total open: 0
+
+REVIEW COMPLETE
+=== SONARQUBE REVIEWER DONE ===
+
+ openclaw  .../CED-10-private-photo-vault   CED-10-
+private-photo-vault ?⇡  ⎈ gke-spanland-prod   16:14
+ 
+❯

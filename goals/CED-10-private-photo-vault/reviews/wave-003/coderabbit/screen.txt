@@ -1,0 +1,23 @@
+107 files reviewed:
+- .gitignore
+- .swift-version
+- CONTEXT.md
+- Package.resolved
+- Package.swift
+- Sources/Argon2Bench/main.swift
+- Sources/VaultCore/ChunkObject.swift
+- Sources/VaultCore/ChunkReader.swift
+- Sources/VaultCore/CryptoCore.swift
+- Sources/VaultCore/Errors.swift
+... and 97 more files
+────────────────────────────────────────
+
+Print all AI prompts: coderabbit review --show-prompts
+
+REVIEW COMPLETE
+=== CODERABBIT REVIEWER DONE ===
+
+ openclaw  .../CED-10-private-photo-vault   CED-10-
+private-photo-vault ?⇡  ⎈ gke-spanland-prod   16:17
+ 
+❯

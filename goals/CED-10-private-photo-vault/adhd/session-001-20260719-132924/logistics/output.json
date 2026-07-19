@@ -1,0 +1,26 @@
+[
+  {
+    "text": "Customs-declaration import: a two-phase declare-then-clear API where the caller first submits an ImportDeclaration (plaintext BLAKE2b, size, chunk plan) and the unlock session acts as the customs desk — duplicates are refused at the border before a single chunk is cut, so dedup is a clearance verdict, not a post-hoc scan.",
+    "rationale": "Moves the dedup decision to a typed pre-import handshake, making import-time dedup (session-001 Q6) an explicit API state instead of hidden behavior, and gives the future sync engine the same declaration object to gossip about."
+  },
+  {
+    "text": "Bonded-warehouse type split: the CAS is a bonded warehouse whose ciphertext operations (receive, inventory, verify-seal, hand to sync) require no session at all, while any plaintext release requires presenting a ClearanceToken minted only by an unlocked session — the locked/unlocked distinction lives in the type system, not in runtime checks.",
+    "rationale": "Ciphertext-hash addressing means sync and integrity audits never need the DEK; encoding 'goods stored under bond' vs 'goods cleared' as two API layers lets the CLI peer and sync engine operate on a locked vault safely."
+  },
+  {
+    "text": "Waybill reads: a random-access read returns a Waybill — a pick list of (chunkAddress, cipherRange, plainRange) legs — not bytes; the caller executes pickups lazily, out of order, or cancels mid-route, which is exactly the shape AVAssetResourceLoaderDelegate wants for scrubbing.",
+    "rationale": "Separating route planning from freight movement makes the chunk-range math a pure, testable value type and gives the playback engine cancellation and prioritization for free."
+  },
+  {
+    "text": "Reverse-logistics error surface: an AEAD failure is not a thrown error but a DamagedGoods return-merchandise-authorization value carrying chunk address, file, and range — a first-class returns channel the caller can forward verbatim to a future sync engine as a re-fetch purchase order.",
+    "rationale": "Spec §5.3/§11 says tamper means 're-fetch from a peer, never accept'; modeling that as a routable RMA object instead of an opaque error makes the recovery path part of the API contract from day one."
+  },
+  {
+    "text": "Cross-dock import pipeline: plaintext only ever exists as in-transit Consignment values flowing through an AsyncSequence from source file to encryptor to CAS door — there is no API that gives plaintext a storage address, so the no-plaintext-on-disk gate is enforced by the absence of a warehouse slot for it.",
+    "rationale": "Cross-docking (goods never racked, only transferred dock-to-dock) is literally the plaintext-handling policy; making it the import API's shape turns green gate 3 into a structural property rather than an audit."
+  },
+  {
+    "text": "Sortation-hub actor with demurrage leases: one VaultHub actor per gallery owns all concurrency and serializes manifest HEAD updates like a nightly sortation run; unlock returns a Lease whose surrender (explicit lock or drop) triggers zeroization, and every spoke handle (import, read, sync) is a client that enqueues jobs against that lease.",
+    "rationale": "Hub-and-spoke answers the ownership-of-concurrency question with one serialization point, and the demurrage-lease framing makes lock/zero-on-lock a lifecycle event of a value the caller visibly holds and gives back."
+  }
+]

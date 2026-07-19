@@ -1,0 +1,23 @@
+  (~4 lines, closes it) or an honest downgrade of the
+  documented claim plus a test that forces the
+  deadline to expire.
+
+  Other notable ones: an unbounded unpadded_length
+  that traps on overflow rather than throwing
+  (post-AEAD only, so hardening not vulnerability),
+  the public init(consumingAndZeroing:) reinstating
+  the ""≡"\0" KEK collision on the very path the docs
+  recommend, and a single-epoch read path that
+  contradicts the normative epoch-discovery rule —
+  harmless today, silent data loss the moment rotation
+  ships.
+
+✶ Wandering… (running stop hooks… 2/3 · 8m 3s ·
+↓ 34.9k tokens)
+                                  ◎ /goal active (8m)
+──────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────
+   Model: Opu...
+   cwd: /priv...
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

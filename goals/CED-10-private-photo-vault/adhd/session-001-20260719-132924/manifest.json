@@ -1,0 +1,58 @@
+{
+  "session": "session-001-20260719-132924",
+  "goal": "goals/drafts/20260718-164118-private-photo-vault",
+  "problem": "Design the public API surface of VaultCore (types, protocols, session/handle models, concurrency ownership, error surfaces) for the iOS app shell, streaming playback, future sync engine, and macOS/Linux CLI peer.",
+  "invokedBy": "grill-me session-001 ending picker (explicit opt-in)",
+  "branchExecution": "local-subagents",
+  "branchExecutionSource": "default (no adhd.branchExecution in .evie-agent settings)",
+  "frames": [
+    {
+      "id": "3am-on-call",
+      "tags": [
+        "code",
+        "design"
+      ]
+    },
+    {
+      "id": "competitor",
+      "tags": [
+        "code",
+        "design"
+      ]
+    },
+    {
+      "id": "regulator",
+      "tags": [
+        "design",
+        "general"
+      ]
+    },
+    {
+      "id": "logistics",
+      "tags": [
+        "code",
+        "design"
+      ]
+    },
+    {
+      "id": "10-year-old",
+      "tags": [
+        "general",
+        "wild"
+      ]
+    }
+  ],
+  "phase2": {
+    "weights": {
+      "novelty": 0.35,
+      "viability": 0.4,
+      "fit": 0.25
+    },
+    "deepened": [
+      "deepen-two-plane",
+      "deepen-type-state",
+      "deepen-actor-snapshots"
+    ],
+    "synthesis": "../../references/vaultcore-api-shape.md"
+  }
+}
