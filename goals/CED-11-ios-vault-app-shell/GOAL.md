@@ -1,7 +1,11 @@
 ---
-status: draft
+status: promoted
 created: 2026-07-19T16:48:58-05:00
 author: cedric
+promoted: 2026-07-19T17:23:17-05:00
+issue_url: https://linear.app/cedric-personal/issue/CED-11/build-ios-vault-app-shell-and-photo-grid
+linear_project: Mobileseal
+linear_project_id: cccebfd8-6d19-474b-852f-c87bf528dcf6
 ---
 
 # Build iOS Vault App Shell and Photo Grid
