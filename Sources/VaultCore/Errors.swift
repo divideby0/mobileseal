@@ -9,7 +9,7 @@ public enum VaultObjectKind: String, Sendable, Equatable {
 /// Every failure VaultCore can surface, typed so that callers (and the
 /// corruption-matrix tests) can distinguish tampering, misuse, and
 /// operational faults. No case ever carries plaintext.
-public enum VaultError: Error, Equatable, Sendable {
+public enum VaultError: Error, Equatable, Hashable, Sendable {
     // -- structural parse failures (sealed plane, no DEK needed) --
     /// Magic bytes did not match the documented constant for the object.
     case badMagic(VaultObjectKind)
