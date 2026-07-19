@@ -26,17 +26,17 @@ efficiency items; none of them block on their own.
 
 ## Findings
 
-| #   | Severity | Location                                       | Finding                                                                       |
-| --- | -------- | ---------------------------------------------- | ----------------------------------------------------------------------------- |
-| 1   | major    | `Sources/VaultCore/KeyCustodian.swift:47`      | Drain force-zero revokes nothing: readers decrypt against a private DEK copy   |
-| 2   | minor    | `Sources/VaultCore/ChunkObject.swift:105`      | Unbounded `unpadded_length` traps on overflow instead of throwing a typed error |
-| 3   | minor    | `Sources/VaultCore/SecureBytes.swift:45`       | Public `init(consumingAndZeroing:)` reinstates the ""≡"\0" KEK collision       |
-| 4   | minor    | `Sources/VaultCore/SealedVault.swift:171`      | Epoch handling is single-epoch only, contradicting the normative rotation rule |
-| 5   | minor    | `Sources/VaultCore/CryptoCore.swift:26`        | Sealed-plane hashing can call libsodium before `sodium_init()`                 |
-| 6   | minor    | `Sources/VaultCore/Gallery.swift:169`          | Two-pass import TOCTOU: dedup hash can describe bytes that were never stored   |
-| 7   | minor    | `Tests/VaultCoreTests/CorruptionMatrixTests.swift:1` | `.paddingInvalid` / `.lengthMismatch` are never exercised by any test    |
-| 8   | nit      | `Sources/VaultCore/ChunkReader.swift:164`      | Per-chunk `sodium_malloc` DEK copy and per-open nonce `Array` in the hot path  |
-| 9   | nit      | `Tests/VaultCoreTests/FormatConformanceTests.swift:301` | Conformance test mutates the committed fixture in place            |
+| #   | Severity | Location                                                | Finding                                                                         |
+| --- | -------- | ------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 1   | major    | `Sources/VaultCore/KeyCustodian.swift:47`               | Drain force-zero revokes nothing: readers decrypt against a private DEK copy    |
+| 2   | minor    | `Sources/VaultCore/ChunkObject.swift:105`               | Unbounded `unpadded_length` traps on overflow instead of throwing a typed error |
+| 3   | minor    | `Sources/VaultCore/SecureBytes.swift:45`                | Public `init(consumingAndZeroing:)` reinstates the ""≡"\0" KEK collision        |
+| 4   | minor    | `Sources/VaultCore/SealedVault.swift:171`               | Epoch handling is single-epoch only, contradicting the normative rotation rule  |
+| 5   | minor    | `Sources/VaultCore/CryptoCore.swift:26`                 | Sealed-plane hashing can call libsodium before `sodium_init()`                  |
+| 6   | minor    | `Sources/VaultCore/Gallery.swift:169`                   | Two-pass import TOCTOU: dedup hash can describe bytes that were never stored    |
+| 7   | minor    | `Tests/VaultCoreTests/CorruptionMatrixTests.swift:1`    | `.paddingInvalid` / `.lengthMismatch` are never exercised by any test           |
+| 8   | nit      | `Sources/VaultCore/ChunkReader.swift:164`               | Per-chunk `sodium_malloc` DEK copy and per-open nonce `Array` in the hot path   |
+| 9   | nit      | `Tests/VaultCoreTests/FormatConformanceTests.swift:301` | Conformance test mutates the committed fixture in place                         |
 
 ---
 
@@ -53,7 +53,7 @@ return try custodian.withKey { raw in
     let paddedLen = try ChunkObject.open(stored: stored, ..., dek: dek, ...)
 ```
 
-The decrypt at `ChunkObject.open` runs against `dek` — a *copy* — not
+The decrypt at `ChunkObject.open` runs against `dek` — a _copy_ — not
 against the custodian's allocation. The same shape appears in
 `SealedVault.swift:276-285` (`withDEK`) and, more starkly, in
 `KeyCustodian.leaseKey` (`KeyCustodian.swift:85-99`), whose own comment
@@ -62,8 +62,8 @@ concedes "a straggling lease's copy zeroes at its deinit".
 `KeyCustodian.lockAndDrain` (`KeyCustodian.swift:121-134`) waits for
 `activeReads` up to the deadline and then `sodium_memzero`s only its
 own `key`. `withKey`'s remap (`KeyCustodian.swift:63-73`) converts a
-lost race to `.vaultLocked` *only if the body throws
-`.authenticationFailed`*.
+lost race to `.vaultLocked` _only if the body throws
+`.authenticationFailed`_.
 
 **Why it matters.** `docs/formats.md:296-302` states the invariant
 normatively: "past the drain deadline the DEK is zeroed even if a
@@ -72,15 +72,15 @@ fails and the read surfaces the typed lock error — a zeroed or
 partially-zeroed key cannot produce valid plaintext." That is not what
 the code does. A reader that has already taken its copy when the
 deadline expires decrypts successfully and returns plaintext to `body`
-*after* `lock()` has returned to the caller. Green gate 5's disjunction
+_after_ `lock()` has returned to the caller. Green gate 5's disjunction
 ("complete within the drain deadline **or** fail closed") has a third
-outcome: complete *after* the deadline, with plaintext.
+outcome: complete _after_ the deadline, with plaintext.
 
 The window is bounded but not theoretical — the body holds a 4 MiB
 `sodium_malloc` buffer and does a full-chunk AEAD open plus padding
 scan; a page-fault storm or a descheduled thread pushes past 500 ms.
 `LockRaceTests` cannot catch this: `lockWaitsForParkedInFlightRead`
-parks *inside* `withKey` and completes before the 1 s deadline (it
+parks _inside_ `withKey` and completes before the 1 s deadline (it
 asserts the drain succeeded, not that it timed out), and
 `debugKeyIsZeroed` only inspects the custodian's own allocation, which
 is zeroed regardless.
@@ -97,13 +97,13 @@ rests on.
   custodian's allocation directly (an `aeadOpen` overload taking
   `UnsafeRawBufferPointer` for the key), so a force-zero mid-decrypt
   genuinely corrupts the tag; and have `withKey` re-check `locked`
-  *after* `body` returns, discarding the result with `.vaultLocked` if
+  _after_ `body` returns, discarding the result with `.vaultLocked` if
   the vault locked meanwhile. That last check alone closes the plaintext
   leak for both the copy and non-copy shapes and is ~4 lines.
 - Or keep the design and downgrade the claim: state in
   `docs/formats.md` and in the `KeyCustodian`/green-gate-5 comments
-  that `lock()` guarantees *no new reads and a zeroed custodian
-  allocation*, and that a read already in flight at the deadline may
+  that `lock()` guarantees _no new reads and a zeroed custodian
+  allocation_, and that a read already in flight at the deadline may
   still complete and return plaintext. Add a test that forces the
   deadline to expire (a body that sleeps past it) and asserts the
   documented outcome, so the behaviour is pinned either way.
@@ -195,7 +195,7 @@ assert both initializers refuse empty input.
   `meta.currentEpoch`. There is no trial loop.
 - `SealedVault.unlock` unwraps only `meta.currentEpoch`'s DEK
   (`SealedVault.swift:174`), but `ChunkReader.decryptChunk` decrypts
-  each chunk under the *entry's* epoch,
+  each chunk under the _entry's_ epoch,
   `epoch: e.epoch` (`ChunkReader.swift:173`), using that one DEK.
 - `GalleryMeta.parse` accepts up to `maxKeyringEntries = 8`
   (`FormatConstants.swift:47`), and `CONTEXT.md:20-23` plus
@@ -256,12 +256,12 @@ the source to compute `dedupHash` and `unpaddedLength`
 re-reads the source to seal chunks. The only consistency check between
 passes is length: `guard got == want` (`Gallery.swift:214`).
 
-**Why it matters.** If the source file's *contents* change between the
+**Why it matters.** If the source file's _contents_ change between the
 passes while its length stays the same, the stored ciphertext holds the
 pass-2 bytes while the entry's `dedup_hash` — the sole dedup key —
 describes the pass-1 bytes. That mislabeling is permanent and
 self-propagating: a later import of the pass-1 content matches the
-stale hash and is deduplicated onto chunks holding *different* media,
+stale hash and is deduplicated onto chunks holding _different_ media,
 so the second file silently reads back as the first. `importFile` is
 the public entry point for a photo library where the OS and other apps
 can rewrite files underneath the importer, so this is not purely
@@ -287,7 +287,7 @@ integrity errors, not ignorable").
 **Why it matters.** Green gate 1 asks that each corruption class fail
 with "the right typed error". Padding validation is the check that
 enforces the `docs/formats.md` §Padding contract against a
-non-conforming *writer* (a third-party implementation that over-pads or
+non-conforming _writer_ (a third-party implementation that over-pads or
 pads with non-zero bytes) — exactly the interoperability risk ADR 0001
 exists to manage. As written, replacing `validatePadding`'s body with
 `return` would leave the suite green.

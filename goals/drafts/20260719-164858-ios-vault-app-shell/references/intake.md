@@ -8,6 +8,7 @@ UICollectionView-in-SwiftUI, lock/unlock UX with backgrounding
 redaction. Blocked by: Vault Core Crypto & CAS — now resolved.
 
 Carried into this leg from CED-10's RESULT.md follow-ups:
+
 - Device Argon2id benchmark: assert the 0.5-1s unlock envelope on a
   real iPhone (macOS M4 Pro measured 0.324s at MODERATE); add the
   adaptive calibration step the research report recommends.
