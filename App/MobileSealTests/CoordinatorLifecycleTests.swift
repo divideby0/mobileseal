@@ -55,8 +55,9 @@ import VaultCore
         await vault.coordinator.lock()
         _ = await TestSupport.waitUntil { vault.sink.phase == .locked }
 
-        // 5 free failures, then the limiter engages (CED-10 gate 6).
-        for _ in 0..<6 {
+        // 5 free failures; failure 6 starts the first 2 s cooldown;
+        // attempt 7 is refused without running the KDF (CED-10 gate 6).
+        for _ in 0..<7 {
             await vault.coordinator.unlock(password: "wrong password")
             _ = await TestSupport.waitUntil { vault.sink.phase == .locked }
         }
