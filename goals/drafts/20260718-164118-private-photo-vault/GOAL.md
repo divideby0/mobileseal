@@ -4,107 +4,110 @@ created: 2026-07-18T16:41:18-05:00
 author: cedric
 ---
 
-# Build Encrypted Multi-Gallery Photo Vault
+# Build VaultCore Encryption and Chunk Store
 
 ## Problem
 
-There is no private, zero-knowledge alternative to Apple Photos that
-combines a Photos-equivalent browsing/playback UX with per-gallery
-password encryption, offline-first multi-device sync, and optional
-sharing. Cloud photo services see plaintext; existing vault apps
-compromise on UX or on cryptographic posture. This goal builds a
-personal-use (sideloaded) native iOS/iPadOS/visionOS app that closes
-that gap.
-
-The full handoff spec (v0.1) arrived as the intake and is preserved
-verbatim at `references/intake.md` — it defines the architecture,
-cryptographic design, schemas, and a 10-phase build plan. Everything
-below derives from it; agent-inferred additions are marked as such.
+The Private Photo Vault effort (full v0.1 spec preserved verbatim at
+`references/intake.md`; wayfinder map at `wayfinder/MAP.md`) needs its
+foundation: a portable cryptographic core. Everything downstream — the
+iOS app shell, streaming playback, gallery management, CRDT sync, and
+the eventual macOS/Linux CLI peer — layers over the primitives this
+goal builds. Grilling session 001 re-scoped this draft from the
+original XXL 10-phase idea down to this map-leg (L on the fixed
+Fibonacci t-shirt scale).
 
 ## Scope
 
-Per the intake spec (§13 build phases), the work spans:
+Create **VaultCore**, a UIKit/SwiftData-free Swift package (the
+portable core; its on-disk formats are the cross-platform contract),
+plus the repo's Swift scaffolding to host it. Per intake spec §5–§6
+and session-001 decisions:
 
-1. **Core vault** — libsodium envelope encryption (Argon2id KEK →
-   per-gallery DEK), 4 MiB-chunked content-addressed store,
-   grid + detail view (UICollectionView wrapped in SwiftUI).
-2. **Media playback** — swipe/zoom polish, streaming decrypt for
-   video/audio via `AVAssetResourceLoaderDelegate` (per-chunk
-   XChaCha20-Poly1305, random access — no plaintext temp files).
-3. **Multiple galleries** — per-gallery DEK/password, switcher UI.
-4. **Manifest/CRDT + device identity** — Ed25519/X25519 device keys,
-   signed AddEntry/Tombstone set-union merge, trust-on-first-use.
-5. **Local sync** — Multipeer/Bonjour hash-diff reconciliation.
-6. **Supabase backend** — phone-OTP/Google auth, Postgres schema
-   (galleries, members, invites, device keys), storage RLS.
-7. **Cloud sync & sharing** — password path + sealed-box path,
-   invite-by-phone/email.
-8. **iPad adaptation**, 9. **visionOS port**, 10. **Security
-   hardening pass** (spec §11 checklist).
+### Workstream A — package scaffolding
 
-**Sizing (agent-inferred): XXL (13) — well beyond one execution
-session.** This draft is a strong wayfinder-map candidate; expected
-outcome of refinement is a charted map whose first goal is
-phase-1-sized (M–L), not a single monolithic goal.
+1. SwiftPM package `VaultCore` with Swift-Sodium (libsodium) as the
+   sole crypto dependency; builds and tests on macOS via `swift test`
+   (iOS app targets arrive in the next map leg).
+2. Seed `CONTEXT.md` glossary (gallery, DEK/KEK, chunk, entry,
+   tombstone, epoch) and `docs/adr/0001` recording the portable-core /
+   formats-as-contract decision.
+
+### Workstream B — envelope encryption
+
+1. Per-gallery 256-bit DEK; KEK = Argon2id(password, per-gallery
+   salt); `gallery.meta` blob stores wrapped_dek, salt, argon2
+   params, and a reserved `epoch` integer (always 0 — rotation is
+   deliberately deferred, spec §5.6).
+2. Argon2id defaults from the delivered research report
+   (`research/_default/argon2id-tuning-on-modern-iphones.md`), stored
+   per gallery so later tuning never breaks existing vaults; include a
+   benchmark executable target (runnable on device later) asserting
+   the 0.5–1s unlock envelope.
+
+### Workstream C — chunked content-addressed store
+
+1. Fixed-size chunking (default 4 MiB pending the chunk-size research
+   report), each chunk independently encrypted with
+   XChaCha20-Poly1305, nonce derived from (fileID, chunkIndex) — never
+   secretstream, never OpenPGP (spec §5.1).
+2. Chunk address = BLAKE2b(ciphertext); manifest-level dedup via a
+   plaintext BLAKE2b carried inside encrypted per-file metadata
+   (session-001 Q6 — storage stays fully opaque, import-time dedup).
+3. On-disk layout per spec §6 (`galleries/{id}/gallery.meta`,
+   `chunks/{hash}`, …); random-access decrypt of an arbitrary chunk
+   range; AEAD tag verified on every read.
+4. A short `docs/formats.md` describing gallery.meta and the chunk/CAS
+   layout — the first cut of the cross-platform contract.
 
 ## Green gates
 
-Provisional — to be sharpened during grilling (gates below assume this
-goal is re-scoped to the first executable slice; a wayfinder map would
-restate them per ticket):
-
-1. Encryption round-trip proven by tests: import → chunk → encrypt →
-   decrypt → byte-identical export; AEAD tamper detection verified.
-2. No plaintext ever written to disk outside an unlocked session
-   (auditable by test or instrumentation).
-3. App builds and runs on iOS Simulator; grid browsing of an
-   encrypted gallery works end-to-end.
-4. Blind multi-tool review wave completed and reconciled.
+1. `swift test` (macOS) green, covering: encrypt→decrypt round-trip is
+   byte-identical across files spanning 0 bytes, sub-chunk, exact
+   chunk-boundary, and multi-chunk sizes; tampered ciphertext (any
+   chunk, any byte) fails AEAD verification and is reported, never
+   returned; wrong password fails cleanly; import-dedup detects an
+   identical re-import without re-storing chunks.
+2. Random-access proof: decrypting an arbitrary mid-file chunk range
+   touches only those chunks (no whole-file decrypt), demonstrated by
+   test.
+3. No plaintext ever written to disk by any VaultCore API (audited by
+   test using a temp-dir sentinel).
+4. Benchmark target runs on macOS and reports Argon2id unlock time for
+   the chosen params; params + rationale recorded in RESULT.md against
+   the research report.
+5. Blind multi-tool review wave completed and reconciled.
 
 ## References
 
-- `references/intake.md` — the complete v0.1 technical spec
-  (byte-for-byte intake; §5 crypto design, §7 Supabase schema/RLS,
-  §9 CRDT model, §11 hardening checklist, §14 open decisions).
-
-## Open questions (for grilling)
-
-From the spec's own `[DECISION NEEDED]` markers (§14):
-
-1. Argon2id cost params — `MODERATE/MODERATE` default; benchmark
-   target hardware (what is the oldest supported device?).
-2. Chunk size — 4 MiB default vs. smaller for video-scrub granularity.
-3. Chunk addressing — ciphertext-hash (default, no dedup) vs.
-   gallery-scoped convergent (dedup, scoped confirmation-attack risk).
-4. DEK epoch rotation — v1 or deferred (spec recommends defer,
-   reserve `epoch` schema field now).
-5. Device trust bootstrap — trust-on-first-use (spec's pick) vs.
-   explicit device approval.
-6. Storage backend — Supabase Storage direct vs. `BlobStore`
-   abstraction for multi-cloud.
-7. Self-hosted vs. hosted Supabase.
-
-Agent-added (not in spec §14):
-
-8. Is this one goal or a wayfinder map? (Recommendation: map.)
-9. Deployment/signing story for sideloading across iPhone/iPad/Vision
-   Pro (free vs. paid dev account — 7-day vs. 1-year profiles; affects
-   how annoying "personal use" actually is).
-10. Minimum OS versions / device floor (drives SwiftData availability,
-    Argon2id tuning, visionOS SDK choices).
-11. What does v1 "usable daily" mean — which phase marks the point
-    the app replaces whatever currently holds these photos?
-12. Test strategy for crypto + sync (property tests? two-simulator
-    Multipeer harness? Supabase local stack?).
+- `references/intake.md` — full v0.1 spec (§5 crypto, §6 layout are
+  this goal's sections).
+- `wayfinder/MAP.md` — the map this goal is the first leg of;
+  recrafted forward when this goal locks.
+- `grilling/session-001-20260718-165000.md` — decision provenance
+  (Q4 portable core, Q6 addressing, Q7 epochs, Q9–Q10 research, Q11
+  testing).
+- `research/_default/argon2id-tuning-on-modern-iphones.md` and
+  `research/_default/chunk-size-for-encrypted-media-cas.md` (repo
+  root `research/`, main branch once delivered) — dispatched
+  2026-07-19; fold their recommendations in before executing
+  Workstreams B/C constants.
 
 ## Executor notes (self-sufficiency)
 
 - Review-wave diff base: `main`.
-- Xcode project does not exist yet — this repo currently holds only
-  evie-agent scaffolding; the first executable goal creates the app
-  project (name: mobileseal — bundle id/team TBD in grilling).
-- Supabase credentials/instance: none provisioned yet (open question
-  7); phases 1–5 have no backend dependency.
-- Crypto dependency: Swift-Sodium via SPM (spec §5.1 — sole crypto
-  dependency; do not mix in CryptoKit or OpenPGP formats, do not use
-  secretstream for file bodies).
+- The repo has no Swift code yet — this goal creates the first
+  package; there is no Xcode project until the App Shell leg.
+- Swift-Sodium via SPM (github.com/jedisct1/swift-sodium). Do not add
+  CryptoKit, OpenPGP, or secretstream-based designs (spec §5.1
+  explicitly rejects them).
+- macOS toolchain only for this goal; iOS/device benchmarking happens
+  in later legs (the benchmark target just needs to be portable).
+- Research reports land under `research/_default/` on main via a
+  detached delivery worker; if absent at execution start, check
+  `evie-agent research status --slug <slug>` (env: source
+  `.envrc.local`) and proceed with libsodium MODERATE / 4 MiB defaults
+  if runs are still pending, noting that in RESULT.md.
+- Wayfinder rule: this goal locks → next draft (iOS Vault App Shell or
+  Manifest CRDT leg) recrafts `wayfinder/MAP.md` forward from this
+  folder's locked snapshot.

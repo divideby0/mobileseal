@@ -15,33 +15,33 @@ captures the architecture, cryptographic design, schemas, and phased build
 plan. Sections marked **\[DECISION NEEDED]** are places where the spec picks
 a reasonable default but the human should confirm before/while building.
 
-***
+---
 
 ## 2. Goals
 
-* Photos-app-equivalent UX for viewing/browsing photos, videos, and audio.
-* Multiple galleries, each with its own password.
-* Files encrypted at rest at all times except while their gallery is
+- Photos-app-equivalent UX for viewing/browsing photos, videos, and audio.
+- Multiple galleries, each with its own password.
+- Files encrypted at rest at all times except while their gallery is
   unlocked in an active session.
-* Sync across the owner's own devices (iPhone/iPad/Vision Pro), including
+- Sync across the owner's own devices (iPhone/iPad/Vision Pro), including
   local-network sync with no cloud dependency.
-* Optional sharing of an entire gallery with other people, who can also
+- Optional sharing of an entire gallery with other people, who can also
   **add** content but not delete others' content.
-* Cloud backup/recovery via object storage, provider-agnostic where
+- Cloud backup/recovery via object storage, provider-agnostic where
   practical.
-* Zero-knowledge posture: no backend or storage provider ever sees
+- Zero-knowledge posture: no backend or storage provider ever sees
   plaintext content, filenames, or passwords.
 
 ## 3. Non-Goals (v1)
 
-* App Store distribution / review compliance.
-* Airtight revocation of already-synced local content (not achievable in
+- App Store distribution / review compliance.
+- Airtight revocation of already-synced local content (not achievable in
   any offline-first design — see §5.6).
-* Real-time collaborative editing/comments.
-* Cross-account key recovery beyond "forgot the gallery password ⇒ that
+- Real-time collaborative editing/comments.
+- Cross-account key recovery beyond "forgot the gallery password ⇒ that
   gallery's content is unrecoverable" (acceptable for personal use).
 
-***
+---
 
 ## 4. Architecture Summary
 
@@ -71,14 +71,14 @@ a reasonable default but the human should confirm before/while building.
 
 Two identity layers exist side by side and must stay decoupled:
 
-* **Account identity** (phone number or Google account via Supabase Auth) —
+- **Account identity** (phone number or Google account via Supabase Auth) —
   governs coarse authorization (can this account touch this gallery's
   objects) and enables invite-by-phone-number/email.
-* **Cryptographic identity** (an Ed25519 signing keypair + X25519
+- **Cryptographic identity** (an Ed25519 signing keypair + X25519
   encryption keypair generated per device) — governs authorship of
   additions/tombstones and enables password-free sealed-box sharing.
 
-***
+---
 
 ## 5. Cryptography
 
@@ -88,19 +88,19 @@ Use **Swift-Sodium** (libsodium wrapper) as the sole crypto dependency
 rather than mixing CryptoKit with a separate Argon2 package — CryptoKit has
 no Argon2id, and libsodium supplies everything needed in one place:
 
-| Purpose | Primitive |
-|---|---|
-| Password → key derivation | Argon2id (`crypto_pwhash`) |
-| Per-chunk file encryption | XChaCha20-Poly1305 (`crypto_aead_xchacha20poly1305_ietf`) |
-| DEK wrapping (password-based) | XChaCha20-Poly1305 (`crypto_secretbox` equivalent) |
-| DEK wrapping (per-recipient) | Sealed box (`crypto_box_seal`, X25519) |
-| Device identity / signing | Ed25519 (`crypto_sign`) |
-| Content hashing | BLAKE2b (`crypto_generichash`) |
+| Purpose                       | Primitive                                                 |
+| ----------------------------- | --------------------------------------------------------- |
+| Password → key derivation     | Argon2id (`crypto_pwhash`)                                |
+| Per-chunk file encryption     | XChaCha20-Poly1305 (`crypto_aead_xchacha20poly1305_ietf`) |
+| DEK wrapping (password-based) | XChaCha20-Poly1305 (`crypto_secretbox` equivalent)        |
+| DEK wrapping (per-recipient)  | Sealed box (`crypto_box_seal`, X25519)                    |
+| Device identity / signing     | Ed25519 (`crypto_sign`)                                   |
+| Content hashing               | BLAKE2b (`crypto_generichash`)                            |
 
 **Do not** use OpenPGP/GPG-format encryption (rejected earlier in design
 discussion — legacy container format, weak Swift tooling, no benefit since
 recipients are always this app or a small companion decryptor). Do not use
-libsodium's `secretstream` for file bodies — it's a *chained* construction
+libsodium's `secretstream` for file bodies — it's a _chained_ construction
 (each chunk depends on prior state), which is incompatible with
 content-addressed, randomly-seekable chunks. Use independent per-chunk AEAD
 instead (§5.3).
@@ -112,47 +112,47 @@ after benchmarking on real hardware.
 
 ### 5.2 Per-Gallery Envelope Encryption
 
-* Each gallery generates one random 256-bit **DEK** at creation.
-* The DEK is wrapped by a **KEK** = `Argon2id(password, per-gallery salt)`.
-* Store: `wrapped_dek`, `salt`, `argon2_params` — small, unencrypted-but-
+- Each gallery generates one random 256-bit **DEK** at creation.
+- The DEK is wrapped by a **KEK** = `Argon2id(password, per-gallery salt)`.
+- Store: `wrapped_dek`, `salt`, `argon2_params` — small, unencrypted-but-
   meaningless-without-password metadata blob per gallery.
-* Changing a gallery's password only re-wraps the DEK; no file
+- Changing a gallery's password only re-wraps the DEK; no file
   re-encryption needed.
 
 ### 5.3 Chunking & Content Addressing
 
-* Fixed chunk size: **4 MiB** \[DECISION NEEDED — tune; smaller improves
+- Fixed chunk size: **4 MiB** \[DECISION NEEDED — tune; smaller improves
   video-scrub granularity at the cost of more objects/requests].
-* Each chunk encrypted independently: `XChaCha20-Poly1305(DEK, nonce, chunk_plaintext)`.
+- Each chunk encrypted independently: `XChaCha20-Poly1305(DEK, nonce, chunk_plaintext)`.
   Nonce derived deterministically from `(fileID, chunkIndex)` — safe because
   each chunk uses a distinct nonce and the DEK is never reused across
   galleries.
-* Chunk address = `BLAKE2b(ciphertext)` — this is the **default** addressing
+- Chunk address = `BLAKE2b(ciphertext)` — this is the **default** addressing
   scheme (fully opaque to storage, no dedup).
-  * Optional: gallery-scoped convergent addressing —
+  - Optional: gallery-scoped convergent addressing —
     `BLAKE2b(plaintext ‖ gallery_secret)` — enables dedup of identical
     content within a gallery at the cost of a well-known (and here,
     low-value) convergent-encryption confirmation attack, closed off by
     scoping the hash to a per-gallery secret rather than a global one.
     **\[DECISION NEEDED: ciphertext-hash (default) vs gallery-scoped
     convergent — pick before implementing GC/dedup logic.]**
-* This independence is what enables: (a) random-access decryption for
+- This independence is what enables: (a) random-access decryption for
   video scrubbing, (b) resumable/partial sync, (c) tamper detection per
   chunk on read (AEAD tag fails ⇒ discard and re-fetch from a peer).
 
 ### 5.4 Device Identity Keys
 
-* On first launch on a device, generate one Ed25519 keypair (signing) and
+- On first launch on a device, generate one Ed25519 keypair (signing) and
   one X25519 keypair (sealed-box encryption target).
-* Private keys wrapped at rest: `Argon2id(user passphrase, device salt)`
+- Private keys wrapped at rest: `Argon2id(user passphrase, device salt)`
   wraps the private key material. Decrypted into memory only for the
   active session; not synced across devices (each device gets its own
   keypair — mirrors Signal's multi-device model, avoids needing a secure
   key-sync mechanism).
-* Losing a device/passphrase is low-stakes by design: content access is
+- Losing a device/passphrase is low-stakes by design: content access is
   gated by the gallery password (or sealed-box entries), not by this key.
   Recovery = sign back into the account, register a new device key.
-* Public keys registered server-side in `user_devices` (§7.2) once the
+- Public keys registered server-side in `user_devices` (§7.2) once the
   device has authenticated via Supabase Auth.
 
 ### 5.5 Sharing Unlock Paths
@@ -175,15 +175,15 @@ mechanisms**, both just entries alongside each other:
 locally, no server-side action can retract it. This is inherent to
 offline-first, client-side encryption, not a bug to fix later.
 
-What *is* achievable and should be implemented:
+What _is_ achievable and should be implemented:
 
-* **Stop future access**: removing a member from `gallery_members` (or
+- **Stop future access**: removing a member from `gallery_members` (or
   deleting their sealed-box manifest entry) is checked by RLS/local
-  validation on every future read *and write* — a revoked device can't
+  validation on every future read _and write_ — a revoked device can't
   fetch new chunks/manifests, and can't push new content that syncs to
   others, even though it retains local decrypt capability for a fresh
   gallery-password-derived DEK it may have cached.
-* **Stop future access to new content specifically**: optional DEK epoch
+- **Stop future access to new content specifically**: optional DEK epoch
   rotation — rotate to a fresh DEK on membership change, re-wrap only for
   current members, leave prior content under the prior DEK. Cheap (re-wrap
   a 32-byte key, not re-encrypt content). **\[DECISION NEEDED: implement in
@@ -193,7 +193,7 @@ What *is* achievable and should be implemented:
 What is **not** achievable, and should not be promised in any UI copy:
 undoing access to content already synced to a device before revocation.
 
-***
+---
 
 ## 6. Local Storage Layout
 
@@ -215,15 +215,15 @@ filenames, dates-as-plaintext-if-sensitive, or system-visible thumbnails.
 Generate and encrypt your own thumbnails; never let iOS's QuickLook/Photos
 subsystems generate previews of vault content.
 
-***
+---
 
 ## 7. Backend (Supabase)
 
 ### 7.1 Auth
 
-* Phone OTP and Google OAuth as first-class Supabase Auth providers (no
+- Phone OTP and Google OAuth as first-class Supabase Auth providers (no
   custom JWT issuer needed — this is standard, built-in functionality).
-* No anonymous auth needed now that real accounts are in play.
+- No anonymous auth needed now that real accounts are in play.
 
 ### 7.2 Postgres Schema
 
@@ -307,7 +307,7 @@ R2 outside Supabase) turns out to matter later, see §12 for the
 alternative `BlobStore` abstraction that keeps client sync code
 unchanged either way.
 
-***
+---
 
 ## 8. Sync Protocol
 
@@ -340,7 +340,7 @@ upload(to_upload); download(to_download)
 merge_manifest(local_manifest, remote_manifest)  -- see §9, union of entries
 ```
 
-***
+---
 
 ## 9. Manifest / CRDT Model
 
@@ -377,43 +377,43 @@ any device belonging to an authenticated `gallery_members` account may
 register its device pubkey and begin writing signed entries immediately;
 no separate per-device approval step for v1.
 
-***
+---
 
 ## 10. Media Playback Engine
 
-* Grid + detail view: `UICollectionView` with compositional layout,
+- Grid + detail view: `UICollectionView` with compositional layout,
   wrapped in SwiftUI, for Photos-equivalent scroll/zoom/transition feel —
   plain SwiftUI alone will not hit this bar.
-* Video/audio: implement `AVAssetResourceLoaderDelegate` to intercept
+- Video/audio: implement `AVAssetResourceLoaderDelegate` to intercept
   AVPlayer's read requests and serve decrypted chunks on demand — decrypt
   only the chunks needed for the current playback position, never the
   whole file up front, never to a plaintext temp file.
-* Scrubbing: seeking maps to a byte range → maps to a chunk range →
+- Scrubbing: seeking maps to a byte range → maps to a chunk range →
   fetch/decrypt just those chunks (this is why independent per-chunk AEAD,
   not a chained stream cipher, was required in §5.3).
-* Thumbnails: generated and encrypted by the app itself; never rely on
+- Thumbnails: generated and encrypted by the app itself; never rely on
   system-generated previews.
 
-***
+---
 
 ## 11. Security Hardening Checklist
 
-* \[ ] Redact app-switcher snapshot when a gallery is unlocked (swap to a
+- \[ ] Redact app-switcher snapshot when a gallery is unlocked (swap to a
   placeholder view on `scenePhase` → `.background`/`.inactive`).
-* \[ ] Zero/drop decrypted DEK and any plaintext buffers from memory on
+- \[ ] Zero/drop decrypted DEK and any plaintext buffers from memory on
   explicit lock and on backgrounding.
-* \[ ] No plaintext temp files anywhere in the decrypt/playback path.
-* \[ ] No client-facing code path can construct a delete-capable request
+- \[ ] No plaintext temp files anywhere in the decrypt/playback path.
+- \[ ] No client-facing code path can construct a delete-capable request
   for chunk objects during normal operation (§7.3); garbage collection
   of tombstoned content is a separate, deliberate, owner-triggered
   maintenance action using a higher-privileged path, not something
   any regular sync/write flow can reach.
-* \[ ] Every chunk's AEAD tag is verified on read; failures are treated as
+- \[ ] Every chunk's AEAD tag is verified on read; failures are treated as
   "re-fetch from another peer/source," not silently accepted.
-* \[ ] Rate-limit/backoff on repeated failed password attempts per gallery
+- \[ ] Rate-limit/backoff on repeated failed password attempts per gallery
   (local; no server round-trip needed since KEK derivation is local).
 
-***
+---
 
 ## 12. Storage-Agnosticism (optional path, if needed later)
 
@@ -438,7 +438,7 @@ would need its own thin credential/permission story — see the earlier
 discussion of owner-provisioned, delete-denied scoped IAM credentials — but
 none of that touches client sync/CAS/manifest code either way.
 
-***
+---
 
 ## 13. Build Phases
 
@@ -459,16 +459,16 @@ none of that touches client sync/CAS/manifest code either way.
    a straight port of the iPad UI.
 10. **Security hardening pass** — full checklist in §11.
 
-***
+---
 
 ## 14. Open Decisions Summary
 
-| Decision | Default in this spec | Needs confirming? |
-|---|---|---|
-| Argon2id cost params | `MODERATE`/`MODERATE`, tune on device | Yes — benchmark |
-| Chunk size | 4 MiB | Yes — tune for scrub granularity |
-| Chunk addressing | Ciphertext-hash (no dedup) | Yes — vs. gallery-scoped convergent |
-| DEK epoch rotation | Deferred, schema field reserved | Yes — v1 or later |
-| Device trust bootstrap | Trust-on-first-use | Yes — vs. explicit approval |
-| Storage backend | Supabase Storage directly | Yes — vs. BlobStore-abstracted multi-cloud |
-| Self-hosted vs. hosted Supabase | Unspecified | Yes |
+| Decision                        | Default in this spec                  | Needs confirming?                          |
+| ------------------------------- | ------------------------------------- | ------------------------------------------ |
+| Argon2id cost params            | `MODERATE`/`MODERATE`, tune on device | Yes — benchmark                            |
+| Chunk size                      | 4 MiB                                 | Yes — tune for scrub granularity           |
+| Chunk addressing                | Ciphertext-hash (no dedup)            | Yes — vs. gallery-scoped convergent        |
+| DEK epoch rotation              | Deferred, schema field reserved       | Yes — v1 or later                          |
+| Device trust bootstrap          | Trust-on-first-use                    | Yes — vs. explicit approval                |
+| Storage backend                 | Supabase Storage directly             | Yes — vs. BlobStore-abstracted multi-cloud |
+| Self-hosted vs. hosted Supabase | Unspecified                           | Yes                                        |
