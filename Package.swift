@@ -28,7 +28,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "Argon2Bench",
-            dependencies: ["VaultCore"]
+            dependencies: [
+                "VaultCore",
+                .product(name: "Clibsodium", package: "swift-sodium"),
+            ]
         ),
         .testTarget(
             name: "VaultCoreTests",
