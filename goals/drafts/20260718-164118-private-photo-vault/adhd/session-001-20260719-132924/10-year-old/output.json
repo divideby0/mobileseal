@@ -1,0 +1,26 @@
+[
+  {
+    "text": "The open box IS a different toy than the closed box: unlocking doesn't give you a key to carry around, it swaps your locked-box object for a whole new open-box object with totally different buttons, and locking takes the open one away forever so you can't even ask it questions anymore.",
+    "rationale": "Kid intuition: a closed treasure chest and an open treasure chest are different things you play with differently. Maps to a type-state API — LockedGallery and UnlockSession are distinct types, lock() consumes the session, and the compiler makes touching-after-lock impossible instead of throwing a runtime error."
+  },
+  {
+    "text": "You never take a photo out of the box — you slide a magic window over the box and look through it, and the window only shows the little rectangle it's currently sitting on.",
+    "rationale": "The kid never removes contents; the viewing tool comes to the box. Maps to a windowed-read handle: consumers get a range-viewer over (fileID, byteRange) that decrypts only overlapped chunks into a caller-provided or transient buffer — no whole-file materialization, and the AVAssetResourceLoader is just another window."
+  },
+  {
+    "text": "When you drop a toy in, the box hands you back a claim ticket, and the ticket is the only name the toy ever has — you can't ask for 'the beach photo,' only 'the toy for ticket 7'; the pretty names live on a secret list taped inside the lid.",
+    "rationale": "Separates identity from description like a coat check. Maps to opaque FileID handles as the sole public addressing currency; human metadata (filename, date, plaintext hash) is exclusively inside the encrypted manifest, so the API can never leak a semantic name through a signature or log."
+  },
+  {
+    "text": "The box has a mail slot and an out-tray, and it's slow on purpose: you push notes in ('put this in', 'show me pages 3-5 of movie night') and answers come out whenever the box feels like it, one at a time, so two kids poking it at once can never make it confused.",
+    "rationale": "The kid assumes the box does the work, not the visitor. Maps to ownership of concurrency living inside the package — an actor-per-session that serializes mutation and streams results back — so the API is async request/response and callers never coordinate locks themselves."
+  },
+  {
+    "text": "Every time you put a toy in or scribble on the lid-list, the box takes a photograph of its whole insides and only ever shows friends the newest photograph — nobody, not even you, gets to reach into the actual guts.",
+    "rationale": "Kids trust snapshots over live guts. Maps to an immutable-snapshot read model: unlock yields value-type Manifest snapshots; imports return a new snapshot rather than mutating shared state, which gives grid UI, playback, and future CRDT sync a consistent point-in-time view for free."
+  },
+  {
+    "text": "The box comes with detachable identical baby boxes: to share or back up, you don't open anything — you snap off a baby box that holds the same wrapped-up toys, and any other toy that speaks 'box language' can carry it without ever knowing what's inside.",
+    "rationale": "Sharing without opening. Maps to making the ciphertext CAS + manifest an exportable, self-describing unit at the API level — a CiphertextTransfer surface (enumerate/copy sealed chunks and manifest by hash, no DEK required) so the future sync engine and CLI peer are first-class consumers that never touch the unlock session."
+  }
+]

@@ -29,9 +29,18 @@ and session-001 decisions:
 1. SwiftPM package `VaultCore` with Swift-Sodium (libsodium) as the
    sole crypto dependency; builds and tests on macOS via `swift test`
    (iOS app targets arrive in the next map leg).
-2. Seed `CONTEXT.md` glossary (gallery, DEK/KEK, chunk, entry,
-   tombstone, epoch) and `docs/adr/0001` recording the portable-core /
-   formats-as-contract decision.
+2. Public API per `references/vaultcore-api-shape.md` (ADHD session
+   001 synthesis): `SealedVault` ciphertext plane (no-DEK operations:
+   chunk enumeration/copy, address audit, meta parse) / move-only
+   `UnlockSession` plaintext plane with `SecureBytes` scoped custody /
+   `Gallery` actor owning WAL-staged atomic mutation, immutable
+   `Manifest` snapshots, and generation-revocable off-actor
+   `ChunkReader`s. Compile-fail misuse harness is part of the test
+   suite.
+3. Seed `CONTEXT.md` glossary (gallery, DEK/KEK, chunk, entry,
+   tombstone, epoch, sealed/unlocked plane, snapshot) and
+   `docs/adr/0001` recording the portable-core / formats-as-contract
+   decision.
 
 ### Workstream B — envelope encryption
 

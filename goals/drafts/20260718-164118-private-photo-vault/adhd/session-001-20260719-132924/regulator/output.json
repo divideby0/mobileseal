@@ -1,0 +1,26 @@
+[
+  {
+    "text": "Unlock returns a move-only (~Copyable) capability token — every decrypting API takes it by consuming or borrowing, so 'refused while locked' is proven by the compiler, not checked at runtime.",
+    "rationale": "Turns the auditor's 'refusable operation' requirement into a type-system attestation: after lock() consumes the token there is no syntactically valid way to read plaintext, which is stronger than any runtime lock flag an audit would have to trace."
+  },
+  {
+    "text": "Plaintext never leaves the package as Data — only as a non-Copyable PlaintextBuffer with scoped withBytes access and guaranteed zero-on-deinit, so handing plaintext to FileManager requires a deliberate, greppable extraction call.",
+    "rationale": "Makes the no-plaintext-on-disk gate attestable at the API boundary: an auditor greps for the one escape hatch instead of reasoning about every consumer's Data lifetime, and zeroization is a package invariant rather than caller etiquette."
+  },
+  {
+    "text": "Every key-touching operation returns an AuditEvent value (unwrap, wrap, zeroize, chunk-write, dedup-hit) as part of its result — the key-lifecycle ledger is public API surface, not logging.",
+    "rationale": "Auditable key lifecycle by construction: consumers cannot invoke crypto without receiving the evidence record, so the iOS shell, CLI, and tests all assemble the same traceable ledger for free."
+  },
+  {
+    "text": "Ship a public FormatVerifier entry point that validates any on-disk vault tree against the versioned format contract and emits a machine-readable conformance report — the same verifier the test suite and future CLI peer run.",
+    "rationale": "Formats-as-contract becomes provable, not documented: format conformance is an executable API call, so a third-party decryptor or a sync peer can attest compatibility before touching a byte of ciphertext."
+  },
+  {
+    "text": "The store layer only accepts phantom-typed Ciphertext<T> values, and exactly one internal sealing function can mint them — the disk-write path is incapable of expressing a plaintext write.",
+    "rationale": "Reduces the whole no-plaintext-on-disk audit to reviewing one function: everything reachable by the persistence layer is ciphertext by type, so the temp-dir sentinel test verifies an invariant the API already makes unrepresentable."
+  },
+  {
+    "text": "Errors are a closed, numbered, wire-stable taxonomy shipped in the format contract — tamperedChunk vs wrongPassword vs lockedSession vs formatViolation carry identical codes on iOS, macOS, and the Linux CLI.",
+    "rationale": "Refusals must be traceable across peers: a sync engine deciding to discard-and-refetch on AEAD failure needs the same distinguishable, documented code everywhere, so the error surface is treated as compliance-grade contract, not a per-platform enum."
+  }
+]

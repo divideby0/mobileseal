@@ -1,0 +1,26 @@
+[
+  {
+    "text": "Every write API returns a journal receipt: imports stage into a WAL directory and the only way chunks become visible is a single atomic commitEntry(receipt) rename, so a half-finished import is a directory you can delete, never a corrupt vault.",
+    "rationale": "The 3am page for 'vault corrupted after app killed mid-import' becomes impossible when partial state is structurally quarantined and crash recovery is 'rm the staging dir', diagnosable by ls alone."
+  },
+  {
+    "text": "The unlock session is a non-Sendable, non-copyable ~Copyable struct whose deinit zeroes the DEK — the type system makes 'session that never dies' and 'DEK escapes to another thread' compile errors, not runtime audits.",
+    "rationale": "Leaked-plaintext and immortal-session pages come from reference-typed sessions stashed in singletons; ownership-consumed handles mean the lifetime bug can't be written, so the on-call engineer never hunts for who's still holding the key."
+  },
+  {
+    "text": "Reads never return plain Data: they return a TaggedPlaintext wrapper that carries the chunk address, AEAD-verification proof, and byte range it satisfies, so any code path serving unverified or misaligned bytes fails to typecheck.",
+    "rationale": "The scariest page is 'video player showed garbage / tampered chunk got through'; making verification a type-level precondition of possessing plaintext means the audit is grep-for-Data instead of tracing every read path."
+  },
+  {
+    "text": "Ship a first-class fsck: VaultCore exposes verify(gallery:) that walks manifest→chunks→AEAD tags without the password (ciphertext hashes only) and emits a machine-readable damage report distinguishing 'missing chunk', 'bad tag', 'orphan blob'.",
+    "rationale": "At 3am you don't want to reason about the CAS invariants in your head — you want one command that tells you exactly which invariant broke, runnable on a locked vault pulled off a user's device, which also becomes the CLI peer's first tool for free."
+  },
+  {
+    "text": "Every failable operation errors with a persisted incident breadcrumb: errors are enum cases carrying (galleryID, fileID, chunkIndex, expectedHash, gotHash) and VaultCore appends them to an encrypted incident log inside the vault itself.",
+    "rationale": "The difference between a 5-minute and 5-hour page is whether the error says 'decryptFailed' or 'chunk 41 of file X failed tag check, hash mismatch abc≠def'; baking forensics into the error surface means the report IS the diagnosis."
+  },
+  {
+    "text": "Concurrency ownership is inverted: VaultCore is entirely synchronous, single-threaded, and blocking — one serialized VaultActor at the boundary owns all mutation, and callers get async only via that one choke point, so there is exactly one interleaving to reason about at 3am.",
+    "rationale": "Race-condition pages ('two imports interleaved and HEAD points at a manifest referencing missing chunks') are unreproducible nightmares; a deliberately boring single-writer core trades peak parallelism for a state machine you can replay in your head."
+  }
+]

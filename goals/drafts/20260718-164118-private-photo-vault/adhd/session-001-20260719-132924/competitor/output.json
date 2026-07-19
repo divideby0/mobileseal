@@ -1,0 +1,26 @@
+[
+  {
+    "text": "Race lock() against an in-flight chunk read so decrypt observes a half-zeroed DEK; invert into read handles that are non-Sendable child tokens whose lifetime the compiler ties to the actor-isolated session, so no read can straddle a lock.",
+    "rationale": "The attacker exploits TOCTOU between zero-on-lock and an outstanding ChunkReader. Making handles structural children of the session (not flags checked at call time) makes 'read outliving lock' unrepresentable rather than merely detected."
+  },
+  {
+    "text": "Turn the dedup return value into a plaintext-membership oracle by timing/observing 'already present' vs 'stored'; invert into an import API where dedup is an invisible internal storage optimization with an identical, non-branching return regardless of hit or miss.",
+    "rationale": "Import-time plaintext BLAKE2b dedup is a confirmation-attack surface if the caller can tell a hit from a miss. Removing observability from the API shape closes the oracle without giving up dedup."
+  },
+  {
+    "text": "Feed a crafted manifest entry whose plaintext-hash is forged so a later genuine import silently aliases to attacker chunks; invert into AddEntry being constructible only through a verifying initializer plus verify-on-read that re-derives the plaintext hash, never a raw Codable struct literal.",
+    "rationale": "Dedup keyed on a caller-asserted hash is poisonable. Binding the hash to a verifying constructor and rechecking on read makes the manifest entry type self-authenticating rather than a trusted data bag."
+  },
+  {
+    "text": "Force iOS memory pressure to page the decrypted DEK and plaintext chunks into swap or a crash dump; invert into secrets living only inside a sodium_malloc/mlock-backed SecureBytes type, exposed to callers as a borrowed non-copyable buffer they cannot retain or copy out.",
+    "rationale": "A leak that never touches the AEAD path: the OS spills the key to backing store. Making locked, guarded memory the ONLY container the DEK and plaintext ever occupy pushes the guarantee into the type, not the caller's discipline."
+  },
+  {
+    "text": "Have the app shell, playback engine, and sync engine all hold one session and hammer it concurrently to corrupt the HEAD pointer or double-import; invert into VaultCore owning all concurrency as an actor with a single-writer command channel, handing browsers an isolated read-only snapshot view.",
+    "rationale": "The obvious design lets every consumer mutate shared state; inverting to actor-owned single-writer plus immutable read snapshots removes the interleaving surface and stops grid/playback from contending with import."
+  },
+  {
+    "text": "Flood the AVAssetResourceLoaderDelegate path with overlapping tiny range requests to keep a huge set of decrypted chunks resident (plaintext exhaustion / amplification); invert into a scoped withDecryptedChunk { buffer in } borrow plus a back-pressured AsyncSequence with a caller-declared resident-chunk budget.",
+    "rationale": "Streaming random access is a resource-amplification vector where plaintext piles up in memory. A scoped borrow means plaintext never escapes the callback, and an explicit residency budget bounds how much can ever be decrypted at once."
+  }
+]
