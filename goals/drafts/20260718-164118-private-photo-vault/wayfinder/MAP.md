@@ -57,15 +57,6 @@ beyond this map's destination.
   macOS/Linux `vaultctl` actually like: rsync-style one-shot vs.
   daemon/hub, unlock model on a headless box, Linux libsodium/Swift
   toolchain reality check. (blocked by: Local Peer Sync)
-- **Argon2id Tuning on Modern iPhones** (research, S) — dispatched
-  2026-07-19 (`research/_default/argon2id-tuning-on-modern-iphones.md`,
-  exa run agent_run_f696c5c9b5dc4d6ea76dfab38dd29271); resolves when
-  the report lands and its recommendation is folded into the crypto
-  goal.
-- **Chunk Size for Encrypted Media CAS** (research, S) — dispatched
-  2026-07-19 (`research/_default/chunk-size-for-encrypted-media-cas.md`,
-  exa run agent_run_6e34a1a22cf04fb6a28e91fa2825dceb); resolves when
-  the report lands; starting default remains 4 MiB.
 
 ## Decisions so far
 
@@ -91,6 +82,16 @@ beyond this map's destination.
 - [Testing: swift test core, device for UX](../grilling/session-001-20260718-165000.md)
   — crypto/manifest/sync logic tested on macOS in the package;
   simulator/device only for UI, playback, benchmarks, transport.
+- [Argon2id Tuning on Modern iPhones](../../../../research/_default/argon2id-tuning-on-modern-iphones.md)
+  — delivered 2026-07-19: opslimit=3 / 256 MiB (libsodium MODERATE)
+  default, params stored per gallery, adaptive calibration toward
+  384–512 MiB later; never SENSITIVE for interactive unlock. Folded
+  into the crypto goal (Workstream B).
+- [Chunk Size for Encrypted Media CAS](../../../../research/_default/chunk-size-for-encrypted-media-cas.md)
+  — delivered 2026-07-19: 4 MiB fixed confirmed as the storage-object
+  default; keep chunk size a per-file manifest property so the
+  playback leg can adopt a 1–2 MiB video profile if scrub latency
+  demands. Folded into the crypto goal (Workstream C).
 
 ## Not yet specified
 

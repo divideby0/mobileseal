@@ -39,16 +39,24 @@ and session-001 decisions:
    salt); `gallery.meta` blob stores wrapped_dek, salt, argon2
    params, and a reserved `epoch` integer (always 0 — rotation is
    deliberately deferred, spec §5.6).
-2. Argon2id defaults from the delivered research report
-   (`research/_default/argon2id-tuning-on-modern-iphones.md`), stored
-   per gallery so later tuning never breaks existing vaults; include a
+2. Argon2id defaults per the delivered research report
+   (`research/_default/argon2id-tuning-on-modern-iphones.md`):
+   `opslimit=3`, `memlimit=256 MiB` (libsodium MODERATE), stored per
+   gallery so later tuning never breaks existing vaults. Include a
    benchmark executable target (runnable on device later) asserting
-   the 0.5–1s unlock envelope.
+   the 0.5–1s unlock envelope; design leaves room for the report's
+   adaptive-calibration step (raise toward 384–512 MiB only when
+   measured cold unlock stays under ~0.75s on-device — a later-leg
+   concern, but params-per-gallery makes it free).
 
 ### Workstream C — chunked content-addressed store
 
-1. Fixed-size chunking (default 4 MiB pending the chunk-size research
-   report), each chunk independently encrypted with
+1. Fixed-size 4 MiB chunking (confirmed by
+   `research/_default/chunk-size-for-encrypted-media-cas.md` as the
+   right storage-object default; a smaller video profile is a
+   playback-leg question, so keep chunk size a per-file manifest
+   property rather than a global constant), each chunk independently
+   encrypted with
    XChaCha20-Poly1305, nonce derived from (fileID, chunkIndex) — never
    secretstream, never OpenPGP (spec §5.1).
 2. Chunk address = BLAKE2b(ciphertext); manifest-level dedup via a
@@ -89,9 +97,8 @@ and session-001 decisions:
   testing).
 - `research/_default/argon2id-tuning-on-modern-iphones.md` and
   `research/_default/chunk-size-for-encrypted-media-cas.md` (repo
-  root `research/`, main branch once delivered) — dispatched
-  2026-07-19; fold their recommendations in before executing
-  Workstreams B/C constants.
+  root `research/`, committed on main) — delivered 2026-07-19; their
+  recommendations are already folded into Workstreams B/C above.
 
 ## Executor notes (self-sufficiency)
 
@@ -103,11 +110,9 @@ and session-001 decisions:
   explicitly rejects them).
 - macOS toolchain only for this goal; iOS/device benchmarking happens
   in later legs (the benchmark target just needs to be portable).
-- Research reports land under `research/_default/` on main via a
-  detached delivery worker; if absent at execution start, check
-  `evie-agent research status --slug <slug>` (env: source
-  `.envrc.local`) and proceed with libsodium MODERATE / 4 MiB defaults
-  if runs are still pending, noting that in RESULT.md.
+- Both research reports are delivered and committed on main under
+  `research/_default/` — rebase-onto-main at promotion brings them
+  into this branch; no pending inputs remain.
 - Wayfinder rule: this goal locks → next draft (iOS Vault App Shell or
   Manifest CRDT leg) recrafts `wayfinder/MAP.md` forward from this
   folder's locked snapshot.
