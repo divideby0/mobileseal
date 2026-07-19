@@ -1,0 +1,38 @@
+{
+  "files" : [
+    {
+      "addresses" : [
+        "94ba9c46edd87298ddeadb82efa32b4f3d771c16a9e0b7b7b351c7a398605b79",
+        "7dc62db4818d2f5d7f501631e13623d37052c7476399039269283dfbbca5b4a7"
+      ],
+      "chunkSize" : 65536,
+      "fileID" : "d05b095c-fe5e-4154-bcbb-b0b8e33baedf",
+      "metadata" : "name=alpha.jpg",
+      "plaintextFile" : "file-a.bin",
+      "unpaddedLength" : 100000
+    },
+    {
+      "addresses" : [
+        "cab01b823375a82c5dc68353326f6d6075c8c3ed7c5583a46de2d8901de04a8e"
+      ],
+      "chunkSize" : 65536,
+      "fileID" : "6894f489-b5bc-4f17-a4f5-9c7467007c34",
+      "metadata" : "name=empty.dat",
+      "unpaddedLength" : 0
+    },
+    {
+      "addresses" : [
+        "94ba9c46edd87298ddeadb82efa32b4f3d771c16a9e0b7b7b351c7a398605b79",
+        "7dc62db4818d2f5d7f501631e13623d37052c7476399039269283dfbbca5b4a7"
+      ],
+      "chunkSize" : 65536,
+      "fileID" : "28110724-e8a9-4676-b67a-a5252d35991d",
+      "metadata" : "name=alpha-again.jpg",
+      "plaintextFile" : "file-a.bin",
+      "unpaddedLength" : 100000
+    }
+  ],
+  "galleryUUID" : "ae24fac4-1d39-4393-a5f5-47f35e0d0227",
+  "generation" : 4,
+  "password" : "kat-password-2026"
+}
