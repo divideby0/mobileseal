@@ -17,7 +17,7 @@ import Testing
         let mediaA = randomBytes(Int(testChunkSize) + 100, seed: 1)
         let mediaB = randomBytes(Int(testChunkSize) * 2 + 55, seed: 2)
         var session = try vault.unlock()
-        var gallery = session.openGallery()
+        var gallery = try session.openGallery()
         let fileA = try await gallery.importBytes(mediaA, chunkSize: testChunkSize)
 
         // Crash while importing B.
@@ -61,7 +61,7 @@ import Testing
         // The vault stays fully usable: a retry of the failed import
         // (new txid, fresh file ID — docs/formats.md §File identity)
         // succeeds and both files read back.
-        gallery = session.openGallery()
+        gallery = try session.openGallery()
         let fileBRetry = try await gallery.importBytes(mediaB, chunkSize: testChunkSize)
         let after = await gallery.snapshot()
         #expect(after.files.count == (expectPost ? 3 : 2))
@@ -76,7 +76,7 @@ import Testing
         try vault.create()
 
         let session = try vault.unlock()
-        let gallery = session.openGallery()
+        let gallery = try session.openGallery()
         // Import from a nonexistent file fails before staging anything.
         await #expect(throws: VaultError.self) {
             _ = try await gallery.importFile(

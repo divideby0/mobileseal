@@ -67,6 +67,12 @@ public enum VaultError: Error, Equatable, Hashable, Sendable {
     // -- key custody --
     /// The vault was locked (or is draining); the read failed closed.
     case vaultLocked
+    /// A `Gallery` already exists for this session (single-writer
+    /// invariant; see `UnlockSession.openGallery`).
+    case galleryAlreadyOpen
+    /// The password normalized to zero bytes; refused so degenerate
+    /// inputs cannot collide with padding (see `SecureBytes`).
+    case emptyPassword
 
     // -- environment --
     /// An underlying filesystem operation failed.

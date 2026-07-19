@@ -15,6 +15,7 @@ final class KeyCustodian: @unchecked Sendable {
     private var locked = false
     private var activeReads = 0
     private var zeroed = false
+    private var writerClaimed = false
     /// 32-byte sodium_malloc'd DEK. Freed only in deinit; zeroed at lock
     /// so no reader can ever dereference freed memory.
     private let key: UnsafeMutableRawPointer
@@ -72,18 +73,47 @@ final class KeyCustodian: @unchecked Sendable {
         }
     }
 
-    /// Returns a scoped secure-memory copy of the DEK, taken under
-    /// momentary read custody (throws `vaultLocked` when locked). For
-    /// call shapes where a borrowing closure cannot be used (e.g.
-    /// actor-isolated code capturing move-only buffers).
-    func keyCopy() throws -> SecureBytes {
+    /// Leases a secure-memory copy of the DEK for call shapes where a
+    /// borrowing closure cannot be used (actor-isolated code capturing
+    /// move-only buffers). The lease COUNTS AS AN ACTIVE READ until it
+    /// deinitializes, so `lockAndDrain` waits for outstanding leases
+    /// the same way it waits for in-flight `withKey` reads (wave-001
+    /// claude-code #5: a bare copy escaped drain custody). Past the
+    /// drain deadline the custodian's own allocation is force-zeroed;
+    /// a straggling lease's copy zeroes at its deinit, and any commit
+    /// it attempts is refused by the post-lock check.
+    func leaseKey() throws -> KeyLease {
         let copy = try SecureBytes(zeroed: CryptoCore.keyBytes)
-        try withKey { raw in
-            copy.withUnsafeMutableBytes { dst in
-                dst.baseAddress!.copyMemory(from: raw.baseAddress!, byteCount: raw.count)
-            }
+        cond.lock()
+        guard !locked else {
+            cond.unlock()
+            copy.zeroAndFree()
+            throw VaultError.vaultLocked
         }
-        return copy
+        activeReads += 1
+        cond.unlock()
+        copy.withUnsafeMutableBytes { dst in
+            dst.baseAddress!.copyMemory(from: key, byteCount: CryptoCore.keyBytes)
+        }
+        return KeyLease(custodian: self, key: copy)
+    }
+
+    fileprivate func endLease() {
+        cond.lock()
+        activeReads -= 1
+        cond.broadcast()
+        cond.unlock()
+    }
+
+    /// One-shot writer claim: the plaintext plane allows exactly one
+    /// `Gallery` per session (wave-001 claude-code #2 — two instances
+    /// silently lost a committed import). Returns false once claimed.
+    func claimWriter() -> Bool {
+        cond.lock()
+        defer { cond.unlock() }
+        guard !writerClaimed else { return false }
+        writerClaimed = true
+        return true
     }
 
     /// Lock: refuse new reads now; wait up to `drainDeadline` seconds
@@ -114,5 +144,26 @@ final class KeyCustodian: @unchecked Sendable {
 
     deinit {
         sodium_free(key)
+    }
+}
+
+/// A drained-awaited DEK copy (see `KeyCustodian.leaseKey`). Class so
+/// deinit reliably releases the read count; the secure copy zeroes on
+/// its own deinit.
+final class KeyLease {
+    private let custodian: KeyCustodian
+    private let key: SecureBytes
+
+    fileprivate init(custodian: KeyCustodian, key: consuming SecureBytes) {
+        self.custodian = custodian
+        self.key = key
+    }
+
+    func withKey<R>(_ body: (borrowing SecureBytes) throws -> R) rethrows -> R {
+        try body(key)
+    }
+
+    deinit {
+        custodian.endLease()
     }
 }

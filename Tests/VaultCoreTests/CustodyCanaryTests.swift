@@ -42,7 +42,7 @@ import Testing
 
         // -- normal operation --
         var session = try vault.unlock()
-        var gallery = session.openGallery()
+        var gallery = try session.openGallery()
         let viaFile = try await gallery.importFile(
             at: sourceURL, metadata: canary, chunkSize: testChunkSize)
         _ = try await gallery.importBytes(
@@ -63,7 +63,7 @@ import Testing
 
         // -- simulated crash mid-commit + recovery --
         session = try vault.unlock()
-        gallery = session.openGallery()
+        gallery = try session.openGallery()
         await gallery.setCommitFailpoint(CommitFailpoint(abortAfter: .stagedInventoryWritten))
         do {
             _ = try await gallery.importBytes(

@@ -85,7 +85,12 @@ public final class ChunkReader: Sendable {
         _ body: (borrowing SecureBytes) throws -> R
     ) throws -> R {
         let e = try entry(for: fileID)
-        guard length > 0, offset + UInt64(length) <= e.unpaddedLength else {
+        // Overflow-safe: offset is caller-supplied; a trapping `+`
+        // here would crash the process instead of throwing (wave-001
+        // claude-code #1, confirmed by repro).
+        guard length > 0, offset <= e.unpaddedLength,
+            UInt64(length) <= e.unpaddedLength - offset
+        else {
             throw VaultError.rangeOutOfBounds
         }
         let out = try SecureBytes(zeroed: length)

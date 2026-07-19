@@ -53,7 +53,9 @@ struct UnlockRateLimiter {
         w.u16(0)
         w.u32(state.failureCount)
         w.u64(UInt64(max(0, state.lastFailureAt) * 1000))
-        try? FS.write(w.bytes, to: url, fsync: false)
+        // fsync so a power loss cannot erase an accumulated counter
+        // (wave-001 #10).
+        try? FS.write(w.bytes, to: url, fsync: true)
     }
 
     static func cooldown(afterFailures n: UInt32) -> TimeInterval {
@@ -66,9 +68,13 @@ struct UnlockRateLimiter {
     /// BEFORE the KDF.
     func checkAllowed() throws {
         guard let s = load() else { return }
-        let cooldown = Self.cooldown(afterFailures: s.failureCount)
-        let readyAt = s.lastFailureAt + cooldown
         let now = clock.now()
+        // Clamp future-dated state (clock skew / hostile sidecar) to
+        // `now`: the mechanism must never lock the legitimate user out
+        // for longer than one full cooldown (wave-001 #10).
+        let lastFailure = min(s.lastFailureAt, now)
+        let cooldown = Self.cooldown(afterFailures: s.failureCount)
+        let readyAt = lastFailure + cooldown
         if now < readyAt {
             throw VaultError.rateLimited(retryAfterSeconds: readyAt - now)
         }

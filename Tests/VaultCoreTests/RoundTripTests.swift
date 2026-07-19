@@ -21,7 +21,7 @@ import Testing
 
         let original = randomBytes(size, seed: UInt64(size) + 1)
         let session = try vault.unlock()
-        let gallery = session.openGallery()
+        let gallery = try session.openGallery()
         let fileID = try await gallery.importBytes(
             original, metadata: Array("meta".utf8), chunkSize: testChunkSize)
 
@@ -50,7 +50,7 @@ import Testing
         let original = randomBytes(150_000, seed: 7)
         do {
             let session = try vault.unlock()
-            let gallery = session.openGallery()
+            let gallery = try session.openGallery()
             _ = try await gallery.importBytes(original, chunkSize: testChunkSize)
             session.lock()
         }
@@ -89,7 +89,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: sourceURL) }
 
         let session = try vault.unlock()
-        let gallery = session.openGallery()
+        let gallery = try session.openGallery()
         let fileID = try await gallery.importFile(at: sourceURL, chunkSize: testChunkSize)
         let reader = await gallery.makeReader()
         #expect(try readAll(reader, fileID: fileID, length: UInt64(original.count)) == original)
@@ -115,7 +115,7 @@ import Testing
 
         let secretMetadata = Array("filename=secret.jpg".utf8)
         let session = try vault.unlock()
-        let gallery = session.openGallery()
+        let gallery = try session.openGallery()
         let fileID = try await gallery.importBytes(
             randomBytes(100, seed: 3), metadata: secretMetadata, chunkSize: testChunkSize)
 

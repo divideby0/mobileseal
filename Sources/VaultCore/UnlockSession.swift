@@ -29,11 +29,16 @@ public struct UnlockSession: ~Copyable {
 
     /// Opens the single-writer mutation plane. The returned actor
     /// SHARES this session's key custody: locking the session revokes
-    /// the gallery's (and all readers') access. One `Gallery` per
-    /// session — imports from two Gallery instances of one vault would
-    /// race the inventory.
-    public func openGallery() -> Gallery {
-        Gallery(
+    /// the gallery's (and all readers') access. Exactly ONE `Gallery`
+    /// per session — a second call throws `.galleryAlreadyOpen`
+    /// (structural, not advisory: two instances would race the
+    /// inventory and silently drop a committed import — wave-001
+    /// claude-code #2).
+    public func openGallery() throws -> Gallery {
+        guard custodian.claimWriter() else {
+            throw VaultError.galleryAlreadyOpen
+        }
+        return Gallery(
             layout: vault.layout, meta: vault.meta, custodian: custodian,
             inventory: inventory, epoch: epoch)
     }

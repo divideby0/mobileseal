@@ -51,6 +51,7 @@ Choosing (2):
 - The local inventory (format-version 0) is explicitly a
   this-leg-only artifact; the Manifest-CRDT leg supersedes it with
   signed entries, detectable via the version field.
-- Swift-Sodium (libsodium) is the sole crypto dependency (spec §5.1);
+- Swift-Sodium (libsodium) is the sole crypto dependency (intake spec
+  §5.1 — `goals/CED-10-private-photo-vault/references/intake.md`);
   CryptoKit and secretstream designs were rejected upstream (no
   Argon2id; chained constructions defeat random access).

@@ -18,7 +18,15 @@ public struct SealedVault: Sendable {
     /// Opens an existing gallery directory: runs startup WAL recovery,
     /// then structurally parses `gallery.meta` (bounds-validated —
     /// including KDF cost floors/ceilings — before anything allocates).
-    public init(directory: URL, clock: VaultClock = .system) throws {
+    public init(directory: URL) throws {
+        try self.init(directory: directory, clock: .system)
+    }
+
+    /// Internal seam: the clock feeds the unlock rate limiter, so it
+    /// is deliberately NOT public — a caller-supplied clock would
+    /// neutralize backoff (wave-001 claude-code #7). Tests reach it
+    /// via @testable.
+    init(directory: URL, clock: VaultClock) throws {
         let layout = VaultLayout(root: directory)
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDir),
@@ -39,8 +47,17 @@ public struct SealedVault: Sendable {
     public static func create(
         at directory: URL,
         password: borrowing SecureBytes,
-        kdfParams: KDFParams = .default,
-        clock: VaultClock = .system
+        kdfParams: KDFParams = .default
+    ) throws -> SealedVault {
+        try create(at: directory, password: password, kdfParams: kdfParams, clock: .system)
+    }
+
+    /// Internal seam (see `init(directory:clock:)`).
+    static func create(
+        at directory: URL,
+        password: borrowing SecureBytes,
+        kdfParams: KDFParams,
+        clock: VaultClock
     ) throws -> SealedVault {
         try kdfParams.validate()
         let fm = FileManager.default
@@ -86,7 +103,8 @@ public struct SealedVault: Sendable {
     /// Copies one chunk object out (for sync/backup), verifying the
     /// bytes hash to the requested address first.
     public func copyChunk(_ address: ChunkAddress, to destination: URL) throws {
-        let bytes = try FS.read(layout.chunkURL(address), object: .chunk)
+        let bytes = try FS.read(
+            layout.chunkURL(address), object: .chunk, maxBytes: Self.maxStoredChunkBytes)
         let actual = ChunkAddress.compute(over: bytes)
         guard actual == address else {
             throw VaultError.addressMismatch(expected: address, actual: actual)
@@ -108,7 +126,9 @@ public struct SealedVault: Sendable {
             foreign.append(contentsOf: listing.foreign)
             for address in listing.addresses {
                 let url = dir.appendingPathComponent(address.hex)
-                let bytes = try FS.read(url, object: isChunks ? .chunk : .inventory)
+                let bytes = try FS.read(
+                    url, object: isChunks ? .chunk : .inventory,
+                    maxBytes: isChunks ? Self.maxStoredChunkBytes : FormatV0.maxInventoryObjectBytes)
                 if ChunkAddress.compute(over: bytes) == address {
                     if isChunks { verifiedChunks += 1 } else { verifiedInventories += 1 }
                 } else {
@@ -224,6 +244,10 @@ public struct SealedVault: Sendable {
     }
 
     // MARK: - helpers
+
+    /// Largest legal stored chunk object (header + max chunk + tag).
+    static let maxStoredChunkBytes =
+        ChunkObject.headerLength + Int(FormatV0.maxChunkSize) + CryptoCore.aeadTagBytes
 
     private func listCAS(_ dir: URL) throws -> (addresses: [ChunkAddress], foreign: [String]) {
         try Self.listCASDir(dir)

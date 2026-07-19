@@ -160,6 +160,15 @@ Inventory AAD:
 
 where `epoch` is the current keyring epoch at sealing time (0 today).
 
+**Epoch discovery (normative):** the sealing epoch is intentionally
+NOT stored in the cleartext header. A reader MUST attempt AEAD open
+under each keyring epoch, highest first, until a tag verifies; because
+the AAD binds the epoch, a successful open authenticates which epoch
+sealed the object (bounded work: the keyring holds at most 8 entries).
+With today's single-entry keyring this degenerates to one attempt.
+Chunk objects need no trial: each inventory entry records its chunks'
+epoch.
+
 Decrypted body:
 
 | Field       | Type     | Constraint                            |
@@ -274,6 +283,23 @@ Implementations MUST verify the AEAD tag on every chunk read (§intake
   never sync it. It throttles interactive guessing only; an attacker
   with filesystem write access can delete it (and could equally
   brute-force offline).
+- **Metadata custody trade** (wave-001): entries' opaque metadata
+  blobs are parsed into ordinary heap for the session's lifetime.
+  `lock()` revokes ACCESS to them (accessors fail closed) but does not
+  wipe the arrays; content plaintext, by contrast, only ever lives in
+  guarded memory. Apps storing sensitive metadata should encrypt the
+  blob before handing it to VaultCore (the field is opaque by design).
+- **Password normalization residual** (wave-001): NFC normalization
+  allocates a transient Swift `String` in ordinary heap that is
+  deallocated unwiped. VaultCore retains no password copy; callers
+  needing to avoid the transient can pass pre-normalized bytes.
+- **Drain force-zero is a deliberate bounded race** (wave-001): past
+  the drain deadline the DEK is zeroed even if a straggling read is
+  mid-decrypt. The straggler's AEAD tag check then fails and the read
+  surfaces the typed lock error — a zeroed or partially-zeroed key
+  cannot produce valid plaintext. Bounded blocking was chosen over
+  unbounded waiting; the concurrent write to bytes libsodium is
+  reading is accepted and documented rather than emergent.
 - **Single-process assumption** (Codex A2): one process owns a gallery
   directory at a time. Concurrent multi-process access semantics are a
   CLI-leg question.

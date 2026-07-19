@@ -13,7 +13,7 @@ import Testing
         try vault.create()
         let media = randomBytes(Int(testChunkSize) + 500, seed: 21)
         let session = try vault.unlock()
-        let gallery = session.openGallery()
+        let gallery = try session.openGallery()
         let fileID = try await gallery.importBytes(media, chunkSize: testChunkSize)
         session.lock()
         return (fileID, media)

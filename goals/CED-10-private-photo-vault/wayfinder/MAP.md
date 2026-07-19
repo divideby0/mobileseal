@@ -34,7 +34,8 @@ beyond this map's destination.
   folder): VaultCore Swift package with Argon2id envelope encryption
   (epoch field reserved), per-chunk XChaCha20-Poly1305, ciphertext-hash
   CAS with manifest-level plaintext-hash dedup, `swift test`
-  round-trip/tamper suite, on-device Argon2id benchmark harness.
+  round-trip/tamper suite, macOS Argon2id benchmark target (the
+  on-device envelope assertion rides the App Shell leg — Codex B13).
 - **iOS Vault App Shell** (task, L) — Xcode app target: import from
   Photos, app-generated encrypted thumbnails, grid + detail
   UICollectionView-in-SwiftUI, lock/unlock UX with backgrounding
@@ -105,9 +106,10 @@ beyond this map's destination.
 - CLI non-LAN role: does the CLI peer ever become an always-on hub
   (the "iCloud-like" ambition), and does that change the sync
   protocol? Hangs on CLI Sync Peer UX Grilling.
-- Format spec document shape (the "contract" artifact): what exactly a
-  third-party decryptor needs — firms up while the crypto goal writes
-  the formats.
+- ~~Format spec document shape (the "contract" artifact)~~ — RESOLVED
+  by CED-10: `docs/formats.md` (normative encodings, bounds, AADs,
+  commit protocol) plus the committed KAT fixture vault and
+  independent-decoder conformance test.
 
 ## Out of scope
 

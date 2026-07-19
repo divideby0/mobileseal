@@ -11,6 +11,22 @@ let testKDF = KDFParams(opslimit: 1, memlimit: 16 * 1024 * 1024)
 /// files stay tiny in tests.
 let testChunkSize: UInt32 = 64 * 1024
 
+/// Tiny thread-safe boolean flag (async-context-safe rendezvous).
+final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 /// Mutable, thread-safe fake clock for rate-limit tests.
 final class FakeClock: @unchecked Sendable {
     private let lock = NSLock()

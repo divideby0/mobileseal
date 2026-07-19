@@ -1,3 +1,4 @@
+import Clibsodium
 import Foundation
 
 /// One file entry in the local encrypted inventory (format-version 0,
@@ -167,11 +168,20 @@ struct Inventory: Equatable {
             ciphertext: ciphertext, into: plain, key: dek, nonce: nonce,
             aad: FormatV0.inventoryAAD(galleryID: galleryID, epoch: epoch),
             object: .inventory)
-        // The body is structural data (addresses, lengths, app blobs) —
-        // parsed into ordinary memory by design; content plaintext
-        // never flows through the inventory.
-        let body = plain.withUnsafeBytes { raw in
+        // The body parses into ordinary memory: structural data plus
+        // the app's opaque metadata blobs. NOTE the custody trade,
+        // recorded in docs/formats.md §Security notes: metadata blob
+        // BYTES live in ordinary heap for the session's lifetime —
+        // lock() revokes ACCESS (accessors fail closed) but does not
+        // wipe those arrays. Content plaintext never flows through
+        // the inventory. The transient body copy is zeroed below.
+        var body = plain.withUnsafeBytes { raw in
             Array(UnsafeRawBufferPointer(rebasing: raw[0..<n]))
+        }
+        defer {
+            body.withUnsafeMutableBufferPointer { p in
+                if let base = p.baseAddress { sodium_memzero(base, p.count) }
+            }
         }
         return try parseBody(body)
     }

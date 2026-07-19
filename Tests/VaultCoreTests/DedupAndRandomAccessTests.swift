@@ -12,7 +12,7 @@ import Testing
 
         let media = randomBytes(Int(testChunkSize) * 2 + 100, seed: 42)
         let session = try vault.unlock()
-        let gallery = session.openGallery()
+        let gallery = try session.openGallery()
 
         let first = try await gallery.importBytes(
             media, metadata: Array("first".utf8), chunkSize: testChunkSize)
@@ -54,7 +54,7 @@ import Testing
         let chunks = 5
         let media = randomBytes(Int(testChunkSize) * chunks, seed: 11)
         let session = try vault.unlock()
-        let gallery = session.openGallery()
+        let gallery = try session.openGallery()
         let fileID = try await gallery.importBytes(media, chunkSize: testChunkSize)
 
         let reader = await gallery.makeReader()

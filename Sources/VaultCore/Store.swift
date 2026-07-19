@@ -51,7 +51,12 @@ enum FS {
         let fd = open(url.path, O_RDONLY)
         guard fd >= 0 else { throw VaultError.ioFailure(operation: "opendir", path: url.path) }
         defer { close(fd) }
-        _ = fsync(fd)  // directory fsync is advisory on some filesystems
+        // The commit protocol's fsync ordering is normative
+        // (docs/formats.md §Commit protocol), so a failed directory
+        // sync surfaces instead of being swallowed (wave-001 #11).
+        guard fsync(fd) == 0 else {
+            throw VaultError.ioFailure(operation: "fsyncdir", path: url.path)
+        }
     }
 
     /// Rename that treats an existing destination as success when the
@@ -71,19 +76,45 @@ enum FS {
         }
     }
 
+    /// Bounded read: the size bound is enforced BEFORE the bytes are
+    /// materialized (stat via the open descriptor, then a capped
+    /// `read(2)` loop — no TOCTOU window), so a hostile oversized file
+    /// cannot demand a pathological allocation (wave-001 claude-code
+    /// #3; Codex A8/B13).
     static func read(_ url: URL, object: VaultObjectKind, maxBytes: Int = .max) throws -> [UInt8] {
-        guard let data = FileManager.default.contents(atPath: url.path) else {
+        func unreadable() -> VaultError {
             switch object {
-            case .head: throw VaultError.corruptHead
-            case .chunk: throw VaultError.ioFailure(operation: "read", path: url.path)
-            case .inventory: throw VaultError.ioFailure(operation: "read", path: url.path)
-            case .galleryMeta: throw VaultError.notAVault(path: url.path)
+            case .head: return VaultError.corruptHead
+            case .galleryMeta: return VaultError.notAVault(path: url.path)
+            case .chunk, .inventory:
+                return VaultError.ioFailure(operation: "read", path: url.path)
             }
         }
-        guard data.count <= maxBytes else {
+        let fd = open(url.path, O_RDONLY)
+        guard fd >= 0 else { throw unreadable() }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
+            throw unreadable()
+        }
+        guard info.st_size <= Int64(maxBytes) else {
             throw VaultError.boundsViolation(object, field: "object_length")
         }
-        return [UInt8](data)
+        var out = [UInt8](repeating: 0, count: Int(info.st_size))
+        var total = 0
+        let wanted = out.count
+        try out.withUnsafeMutableBytes { raw in
+            while total < wanted {
+                let n = Darwin.read(fd, raw.baseAddress!.advanced(by: total), wanted - total)
+                if n == 0 { break }  // file shrank underneath us
+                guard n > 0 else {
+                    throw VaultError.ioFailure(operation: "read", path: url.path)
+                }
+                total += n
+            }
+        }
+        if total < wanted { out.removeLast(wanted - total) }
+        return out
     }
 }
 

@@ -216,11 +216,9 @@ public actor Gallery {
                 }
                 let paddedLen = ChunkGeometry.paddedLength(
                     ofChunk: index, unpaddedLength: unpaddedLength, chunkSize: chunkSize)
-                let dek = try custodian.keyCopy()
-                let sealed = try ChunkObject.seal(
-                    plaintext: buffer, plaintextLen: paddedLen, dek: dek,
-                    galleryID: meta.galleryID, fileID: fileID,
-                    chunkIndex: index, epoch: epoch)
+                let sealed = try sealChunk(
+                    buffer, paddedLen: paddedLen, lease: custodian.leaseKey(),
+                    fileID: fileID, index: index)
                 addresses.append(try tx.stageChunk(sealed))
             }
             let entry = InventoryEntry(
@@ -249,13 +247,30 @@ public actor Gallery {
         var next = inventory
         next.generation += 1
         next.entries.append(entry)
-        let dek = try custodian.keyCopy()
-        let object = try next.sealObject(dek: dek, galleryID: meta.galleryID, epoch: epoch)
+        let lease = try custodian.leaseKey()
+        let object = try lease.withKey { dek in
+            try next.sealObject(dek: dek, galleryID: meta.galleryID, epoch: epoch)
+        }
         let commitTx = try tx ?? CommitTx(layout: layout)
         _ = try commitTx.commit(inventoryObject: object, failpoint: failpoint)
         inventory = next
         let snapshot = InventorySnapshot(next)
         for c in continuations.values { c.yield(snapshot) }
+    }
+
+    /// Seals one chunk under a leased DEK. Nonisolated so the closure
+    /// capture of the move-only buffer stays outside actor isolation
+    /// (the region checker rejects it there).
+    private nonisolated func sealChunk(
+        _ buffer: borrowing SecureBytes, paddedLen: Int, lease: KeyLease,
+        fileID: FileID, index: UInt64
+    ) throws -> [UInt8] {
+        try lease.withKey { dek in
+            try ChunkObject.seal(
+                plaintext: buffer, plaintextLen: paddedLen, dek: dek,
+                galleryID: meta.galleryID, fileID: fileID,
+                chunkIndex: index, epoch: epoch)
+        }
     }
 
     // MARK: - Test hooks

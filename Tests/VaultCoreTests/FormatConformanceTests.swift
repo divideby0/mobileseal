@@ -46,7 +46,7 @@ private var katDir: URL {
 
         let pw2 = try SecureBytes(nfcNormalizedPassword: password)
         let session = try vault.unlock(password: pw2)
-        let gallery = session.openGallery()
+        let gallery = try session.openGallery()
         let idA = try await gallery.importBytes(
             mediaA, metadata: Array("name=alpha.jpg".utf8), chunkSize: testChunkSize)
         let idB = try await gallery.importBytes(
@@ -259,16 +259,20 @@ private var katDir: URL {
                 let padded = try #require(
                     open(ciphertext: Array(stored[34...]), key: dek, nonce: nonce, aad: chunkAAD),
                     "chunk \(index) must authenticate under the documented AAD")
-                // Padding rules: multiple of the boundary, min one
-                // boundary, zero pad bytes, content prefix.
-                #expect(padded.count % Self.paddingBoundary == 0)
-                #expect(padded.count >= Self.paddingBoundary)
-                #expect(padded.count <= Int(chunkSize))
+                // Padding rules: pad to EXACTLY the next boundary
+                // multiple (minimum one boundary), zero pad bytes.
+                // Exactness matters — a writer that over-pads would
+                // otherwise slip through (wave-001 coderabbit).
                 let isTail = index == addresses.count - 1
                 let content =
                     isTail
                     ? Int(unpaddedLength) - index * Int(chunkSize)
                     : Int(chunkSize)
+                let expectedPadded = max(
+                    Self.paddingBoundary,
+                    (content + Self.paddingBoundary - 1) / Self.paddingBoundary
+                        * Self.paddingBoundary)
+                #expect(padded.count == expectedPadded)
                 #expect(padded[content...].allSatisfy { $0 == 0 }, "pad bytes must be zero")
                 assembled.append(contentsOf: padded[0..<content])
             }

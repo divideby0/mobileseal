@@ -7,8 +7,10 @@ portable crypto core) is the bounded context these terms belong to;
 ## Terms
 
 - **Gallery** — one independently-encrypted collection of media, with
-  its own password, DEK, and on-disk directory
-  (`galleries/{id}/`). The unit of locking, sharing, and sync.
+  its own password, DEK, and on-disk directory (a gallery root whose
+  path the embedder chooses; the `galleries/{id}/` container
+  convention arrives with the App Shell leg). The unit of locking,
+  sharing, and sync.
 - **DEK (data-encryption key)** — the random 256-bit key that encrypts
   a gallery's chunks and inventory. Generated once at gallery
   creation; never stored raw.

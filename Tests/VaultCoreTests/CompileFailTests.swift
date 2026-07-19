@@ -121,8 +121,11 @@ import Testing
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
-        process.waitUntilExit()
+        // Drain the pipe BEFORE waiting: a diagnostic-heavy fixture
+        // filling the pipe buffer while we wait would deadlock the
+        // suite (wave-001 coderabbit).
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
     }
 }

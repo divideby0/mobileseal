@@ -57,10 +57,17 @@ public struct SecureBytes: ~Copyable {
     }
 
     /// NFC-normalizes the password and copies its UTF-8 bytes into
-    /// secure memory (Codex A5). VaultCore never retains the `String`;
-    /// the caller owns the source string's lifetime and should let it
-    /// go out of scope promptly.
+    /// secure memory (Codex A5). VaultCore never RETAINS a `String`,
+    /// but be honest about the residual: normalization itself
+    /// allocates a transient `String` in ordinary heap whose storage
+    /// is deallocated unwiped (documented in docs/formats.md
+    /// §Security notes). Callers who can supply already-normalized
+    /// bytes should use `init(consumingAndZeroing:)` directly. Empty
+    /// passwords are refused: the secure buffer's minimum size is one
+    /// byte, and "" colliding with "\0" would be a silent KEK
+    /// collision (wave-001 #13).
     public init(nfcNormalizedPassword password: String) throws {
+        guard !password.isEmpty else { throw VaultError.emptyPassword }
         var bytes = Array(password.precomposedStringWithCanonicalMapping.utf8)
         try self.init(consumingAndZeroing: &bytes)
     }
