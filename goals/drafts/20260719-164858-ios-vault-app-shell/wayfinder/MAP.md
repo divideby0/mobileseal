@@ -88,6 +88,18 @@ sharing, iPad, and visionOS are beyond this map's destination.
   MODERATE (0.324 s measured on M4 Pro); 4 MiB chunks as per-file
   property; tail-chunk padding; random per-chunk nonces.
 
+- [App-shell grilling, session 001](../grilling/session-001-20260719-171500.md)
+  — PHPicker copy-in only (delete-originals waits for sync
+  redundancy); vault ciphertext included in backup; Face ID deferred
+  pending a custody-respecting core token API; auto-lock as user
+  preference with strict defaults; byte-exact originals incl. Live
+  Photo pairs and spatial media; duplicates skip-with-notice;
+  metadata heap + purge-on-lock; MobileSeal /
+  com.gmail.cedric.hurst.mobileseal. **Standing principle for the
+  sync legs: background execution transfers SEALED bytes only —
+  crypto runs only in the open, unlocked app (the two-plane API is
+  the enforcement seam).**
+
 ## Not yet specified
 
 - Import fidelity: Live Photos, HEIC/ProRAW, bursts, EXIF privacy —
@@ -100,15 +112,22 @@ sharing, iPad, and visionOS are beyond this map's destination.
 - CI: a macOS workflow selecting the pinned toolchain, asserting
   `swift --version`, running the suite incl. the compile-fail harness
   (CED-10 follow-up; could ticket as a small task at any point).
-- Metadata custody upgrade: SecureBytes for decrypted metadata blobs
-  if plaintext EXIF/names enter them — this goal's grilling decides.
+- Biometric unlock token: a custody-respecting VaultCore API letting
+  Face ID unlock cache a rewrapped secret behind the Secure Enclave —
+  prerequisite for convenience unlock (deferred from the App Shell
+  grill).
+- Delete-originals "move into vault" flow: unblocks at the sync
+  milestone (needs PHPhotoLibrary write auth + post-commit
+  verification protocol).
 
 ## Out of scope
 
 - Supabase backend, cloud sync, sharing (password + sealed-box paths),
   invites (spec phases 6–7) — returns as a fresh effort/map once the
   destination here is reached.
-- iPad adaptation and visionOS port (phases 8–9).
+- iPad adaptation and visionOS port (phases 8–9) — incl. spatial
+  photo/video stereo display (spatial originals already survive via
+  the byte-exact archive).
 - Dedicated security-hardening pass (phase 10) — per-leg items ride
   their legs.
 - DEK epoch rotation implementation, storage-backend choice, decoy-
