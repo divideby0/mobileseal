@@ -102,8 +102,6 @@ sharing, iPad, and visionOS are beyond this map's destination.
 
 ## Not yet specified
 
-- Import fidelity: Live Photos, HEIC/ProRAW, bursts, EXIF privacy —
-  being sharpened by this draft's grilling.
 - CLI non-LAN role: always-on hub ambitions and whether they change
   the sync protocol — hangs on CLI Sync Peer UX Grilling.
 - GC/repair leg: orphan-chunk reclamation, in-place entry repair
