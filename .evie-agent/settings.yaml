@@ -9,6 +9,8 @@
 # waves and must be available. Machines with more tools define them in
 # .evie-agent/settings.local.yaml.
 tools:
+  herdr:
+    session: mobilesync
   review:
     claude-code: { model: opus, effort: high }
     codex: {}
