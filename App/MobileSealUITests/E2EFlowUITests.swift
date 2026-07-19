@@ -63,7 +63,7 @@ final class E2EFlowUITests: XCTestCase {
         app.buttons["summary-done"].tap()
 
         // --- Grid renders from encrypted thumbnails.
-        let grid = app.otherElements["photo-grid"]
+        let grid = app.collectionViews["photo-grid"]
         XCTAssertTrue(grid.waitForExistence(timeout: 30), "grid never appeared")
         XCTAssertTrue(
             app.cells.count > 0 || grid.descendants(matching: .any).count > 0,
@@ -81,7 +81,7 @@ final class E2EFlowUITests: XCTestCase {
         app.buttons["unlock-button"].tap()
 
         XCTAssertTrue(
-            app.otherElements["photo-grid"].waitForExistence(timeout: 60),
+            app.collectionViews["photo-grid"].waitForExistence(timeout: 60),
             "grid did not restore after unlock")
 
         // Per-item failure visible in the restored grid: the corrupt

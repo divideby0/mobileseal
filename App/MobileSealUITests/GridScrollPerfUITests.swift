@@ -46,7 +46,7 @@ final class GridScrollPerfUITests: XCTestCase {
         XCTAssertTrue(seed.waitForExistence(timeout: 60))
         seed.tap()
 
-        let grid = app.otherElements["photo-grid"]
+        let grid = app.collectionViews["photo-grid"]
         XCTAssertTrue(grid.waitForExistence(timeout: 30))
         // Seeding runs asynchronously; wait for the full population by
         // polling the diffable snapshot through the cell count climb.

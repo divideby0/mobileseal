@@ -23,6 +23,13 @@ struct MobileSealApp: App {
             ).appendingPathComponent("UITest-\(name)", isDirectory: true)
             if UITestSupport.wantsReset {
                 try? FileManager.default.removeItem(at: base)
+                // Also reset persisted preferences: an earlier run on
+                // this simulator (incl. app-hosted unit tests before
+                // the defaults-injection seam existed) may have left
+                // non-default lock policy behind.
+                UserDefaults.standard.removeObject(
+                    forKey: LockPreferences.backgroundPolicyKey)
+                UserDefaults.standard.removeObject(forKey: LockPreferences.idleTimeoutKey)
             }
             container = try! AppContainer(base: base)
         } else {

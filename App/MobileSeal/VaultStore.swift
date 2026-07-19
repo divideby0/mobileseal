@@ -11,6 +11,7 @@ import VaultCore
 final class VaultStore: VaultUISink {
     let coordinator: VaultCoordinator
     private let coordinatorContainer: AppContainer
+    private let defaults: UserDefaults
     let thumbnails = ThumbnailPipeline()
 
     private(set) var phase: VaultPhase = .starting
@@ -26,8 +27,8 @@ final class VaultStore: VaultUISink {
     /// itself.
     private(set) var shielded = false
 
-    var lockPreferences = LockPreferences.load() {
-        didSet { lockPreferences.save() }
+    var lockPreferences: LockPreferences {
+        didSet { lockPreferences.save(to: defaults) }
     }
 
     /// Foreground idle backstop bookkeeping.
@@ -35,9 +36,18 @@ final class VaultStore: VaultUISink {
     private var backgroundedAt: Date?
     private var idleTask: Task<Void, Never>?
 
-    init(coordinator: VaultCoordinator, container: AppContainer) {
+    /// `defaults` is injectable so app-HOSTED unit tests never write
+    /// preferences into the real app domain — persisted test values
+    /// (a 0.2 s idle timeout…) would poison later launches on the
+    /// same simulator, including the e2e gate's.
+    init(
+        coordinator: VaultCoordinator, container: AppContainer,
+        defaults: UserDefaults = .standard
+    ) {
         self.coordinator = coordinator
         self.coordinatorContainer = container
+        self.defaults = defaults
+        self.lockPreferences = LockPreferences.load(from: defaults)
     }
 
     func bootstrap() async {
@@ -62,6 +72,7 @@ final class VaultStore: VaultUISink {
 
     /// Explicit lock control (GOAL WS D.1) and every auto-lock path.
     func lock() {
+        NSLog("MOBILESEAL-LOCK store.lock() called")
         Task { await lockAndPurge() }
     }
 
@@ -85,10 +96,12 @@ final class VaultStore: VaultUISink {
     // MARK: - scenePhase policy (GOAL WS D.1/D.2)
 
     func sceneBecameInactive() {
+        NSLog("MOBILESEAL-SCENE inactive")
         shielded = true
     }
 
     func sceneBecameActive() {
+        NSLog("MOBILESEAL-SCENE active")
         // Grace-period policy: an app backgrounded longer than the
         // grace window locks on RETURN (timers do not run while
         // suspended; memory custody during the window is the accepted
@@ -105,6 +118,7 @@ final class VaultStore: VaultUISink {
     }
 
     func sceneEnteredBackground() {
+        NSLog("MOBILESEAL-SCENE background policy=%@", lockPreferences.backgroundPolicy.rawValue)
         shielded = true
         backgroundedAt = Date()
         switch lockPreferences.backgroundPolicy {
@@ -131,6 +145,7 @@ final class VaultStore: VaultUISink {
                 let timeout = self.lockPreferences.idleTimeout
                 guard timeout > 0, self.phase.isUnlocked, !self.shielded else { continue }
                 if Date().timeIntervalSince(self.lastInteraction) >= timeout {
+                    NSLog("MOBILESEAL-LOCK idle backstop fired (timeout=%f)", timeout)
                     self.lock()
                 }
             }

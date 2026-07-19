@@ -17,7 +17,12 @@ import VaultCore
         let container = try TestSupport.makeContainer()
         let coordinator = VaultCoordinator(
             container: container, calibration: TestSupport.fastCalibration)
-        let store = VaultStore(coordinator: coordinator, container: container)
+        // Isolated defaults domain: these tests are app-hosted, and
+        // writing lock prefs into .standard would poison later real
+        // launches on this simulator (bit the e2e gate).
+        let defaults = UserDefaults(suiteName: "scenephase-tests-\(UUID().uuidString)")!
+        let store = VaultStore(
+            coordinator: coordinator, container: container, defaults: defaults)
         await store.bootstrap()
         _ = await TestSupport.waitUntil { store.phase == .needsSetup }
         store.createGallery(password: UnlockedVault.password)
