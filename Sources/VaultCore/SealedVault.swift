@@ -170,6 +170,14 @@ public struct SealedVault: Sendable {
     /// and is only borrowed — never retained. Repeated failures back
     /// off locally (`VaultError.rateLimited`) before the KDF runs.
     public func unlock(password: borrowing SecureBytes) throws -> UnlockSession {
+        // The whole check→KDF→record sequence runs under a per-vault
+        // mutex: concurrent guesses must not all observe the same
+        // pre-failure limiter state (wave-003 codex #4).
+        let gate = VaultProcessRegistry.shared.unlockLock(
+            path: VaultProcessRegistry.canonicalPath(layout.root))
+        gate.lock()
+        defer { gate.unlock() }
+
         let limiter = UnlockRateLimiter(url: layout.throttleURL, clock: clock)
         try limiter.checkAllowed()
 

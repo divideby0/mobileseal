@@ -81,6 +81,13 @@ public struct GalleryMeta: Sendable {
         keyring.reserveCapacity(Int(entryCount))
         for _ in 0..<entryCount {
             let epoch = try r.u32()
+            // Format v0 pins the sole entry to epoch 0 (wave-003 codex
+            // #7): accepting other epochs would silently widen v0
+            // beyond what independent implementations following the
+            // document accept.
+            guard epoch == 0 else {
+                throw VaultError.boundsViolation(.galleryMeta, field: "epoch")
+            }
             let nonce = Array(try r.take(CryptoCore.aeadNonceBytes))
             let wrappedLen = try r.u16()
             guard Int(wrappedLen) == FormatV0.wrappedDEKLength else {

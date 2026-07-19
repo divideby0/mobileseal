@@ -98,13 +98,22 @@ import Testing
 
         let session = try vault.unlock()
         let custodian = session.custodian
-        let holdSeconds = 0.2
+        let postLockHold = 0.3
 
         let parked = Flag()
         let readTask = Task.detached { () -> Bool in
             (try? custodian.withKey { raw -> Bool in
                 parked.set()
-                Thread.sleep(forTimeInterval: holdSeconds)
+                // Deterministic rendezvous: wait until lock() is
+                // actually draining (isLocked flips the instant new
+                // reads are refused), THEN hold custody a further
+                // 300 ms so the drain provably waits on this read.
+                let deadline = Date().addingTimeInterval(5)
+                while !custodian.isLocked && Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.005)
+                }
+                guard custodian.isLocked else { return false }
+                Thread.sleep(forTimeInterval: postLockHold)
                 // The key must still be intact for the whole hold.
                 return !raw.allSatisfy { $0 == 0 }
             }) ?? false
@@ -112,11 +121,11 @@ import Testing
 
         while !parked.isSet { try await Task.sleep(for: .milliseconds(1)) }
         let lockStart = Date()
-        session.lock(drainDeadline: 1.0)
+        session.lock(drainDeadline: 3.0)
         let lockDuration = Date().timeIntervalSince(lockStart)
 
-        #expect(lockDuration >= holdSeconds * 0.75, "lock() must wait for the in-flight read")
-        #expect(lockDuration < 1.0, "drain completed, not the deadline")
+        #expect(lockDuration >= postLockHold * 0.8, "lock() must wait for the in-flight read")
+        #expect(lockDuration < 3.0, "drain completed, not the deadline")
         #expect(custodian.debugKeyIsZeroed)
         let readerSawIntactKey = await readTask.value
         #expect(readerSawIntactKey, "the parked read completed against the intact key")

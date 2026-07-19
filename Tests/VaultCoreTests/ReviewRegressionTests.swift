@@ -165,10 +165,10 @@ import Testing
         }
     }
 
-    /// wave-002 claude-code #6: an import source whose contents change
-    /// between the hash pass and the seal pass (same length) is
-    /// refused — never committed with a mislabeled dedup hash.
-    @Test func importRefusesSourceMutatedBetweenPasses() async throws {
+    /// Distinct content must never falsely dedup (renamed per wave-003
+    /// claude-code #2 — this asserts a general property; the actual
+    /// mutation guards are pinned by `importSourceMutationGuards`).
+    @Test func distinctContentDoesNotFalselyDedup() async throws {
         let vault = try TestVault()
         defer { vault.destroy() }
         try vault.create()
@@ -181,18 +181,9 @@ import Testing
         let session = try vault.unlock()
         let gallery = try session.openGallery()
 
-        // Swap the file's contents (same length) between pass 1 and
-        // pass 2 using the commit failpoint? No — the mutation window
-        // is between the passes, so use a same-length rewrite raced by
-        // a concurrent task; instead, deterministically: import once
-        // (pass 1+2 consistent), then emulate the TOCTOU by asserting
-        // the sealed-hash comparison rejects a mismatch — covered by
-        // mutating the file DURING pass 2 via a FileHandle from
-        // another task is flaky; the deterministic seam is the
-        // MemorySource path, which cannot change. So this test pins
-        // the honest observable: a same-length rewrite between two
-        // SEPARATE imports yields distinct entries with distinct
-        // hashes (no false dedup against the stale hash).
+        // A same-length rewrite between two SEPARATE imports yields
+        // distinct entries with distinct chunk sets — no false dedup
+        // against the first import's hash.
         let idA = try await gallery.importFile(at: sourceURL, chunkSize: testChunkSize)
         var mutated = randomBytes(4096, seed: 78)
         mutated[0] = 0x5A

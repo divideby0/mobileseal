@@ -7,12 +7,35 @@ import Foundation
 enum SodiumRuntime {
     private static let initialized: Bool = sodium_init() >= 0
 
-    /// mlock failure policy (Codex Q7): best-effort. libsodium already
-    /// attempts mlock inside sodium_malloc; when the platform refuses
-    /// (common under iOS memory limits) we log once and proceed —
-    /// guarded allocation (canaries + zero-on-free) is still in force.
     static func ensure() throws {
         guard initialized else { throw VaultError.secureMemoryUnavailable }
+    }
+}
+
+/// mlock failure policy (Codex Q7): best-effort — page-locking failure
+/// warns and proceeds; guarded allocation (canaries + zero-on-free)
+/// stays in force. The degradation is OBSERVABLE, not silent
+/// (wave-003 codex #8): the first allocation probes `sodium_mlock`,
+/// and on refusal sets `pageLockingDegraded` and emits one warning.
+public enum SecureMemoryStatus {
+    /// True when the platform refused to page-lock secure memory
+    /// (common under iOS memory limits). Key material may be swapped.
+    public private(set) nonisolated(unsafe) static var pageLockingDegraded = false
+
+    private nonisolated(unsafe) static var probed = false
+    private static let lock = NSLock()
+
+    static func probe(_ ptr: UnsafeMutableRawPointer, _ count: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !probed else { return }
+        probed = true
+        // Locking an already-locked region succeeds; a refusal here
+        // means sodium_malloc's own best-effort mlock also failed.
+        if sodium_mlock(ptr, count) != 0 {
+            pageLockingDegraded = true
+            NSLog("VaultCore: mlock unavailable — secure memory is guarded but not page-locked")
+        }
     }
 }
 
@@ -36,15 +59,20 @@ public struct SecureBytes: ~Copyable {
             throw VaultError.secureMemoryUnavailable
         }
         sodium_memzero(p, count)
+        SecureMemoryStatus.probe(p, count)
         self.ptr = p
         self.count = count
     }
 
-    /// Copies `source` into secure memory, then zeroes `source` in
-    /// place so the only remaining copy is the guarded one. Empty
-    /// input is refused: no call site has a legitimate empty secret,
-    /// and padding an empty buffer to one zero byte would collide ""
-    /// with "\0" as KDF input (wave-002 claude-code #3).
+    /// Copies `source` into secure memory, then zeroes `source`'s
+    /// storage. BEST-EFFORT wipe (wave-003 coderabbit): `inout` can
+    /// only zero the storage the caller's binding refers to — if that
+    /// array's buffer is shared (copy-on-write), the mutation zeroes a
+    /// fresh copy and the sibling keeps the original bytes. Callers
+    /// must pass a uniquely-referenced array for the wipe to be total.
+    /// Empty input is refused: no call site has a legitimate empty
+    /// secret, and padding an empty buffer to one zero byte would
+    /// collide "" with "\0" as KDF input (wave-002 claude-code #3).
     public init(consumingAndZeroing source: inout [UInt8]) throws {
         guard !source.isEmpty else { throw VaultError.emptyPassword }
         try self.init(zeroed: source.count)

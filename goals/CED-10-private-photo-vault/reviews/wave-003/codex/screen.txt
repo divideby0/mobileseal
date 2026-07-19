@@ -1,0 +1,23 @@
+        proceed-with-warning policy for common iOS `ml
+        ock` failures. The implementation proceeds sil
+        ently, so callers and diagnostics cannot disti
+        nguish the intended degraded-security mode fro
+        m successfully page-locked key memory.
+    75 +
+    76 +Suggested fix: expose an injectable, non-secre
+        t diagnostic hook and explicitly probe/check p
+        age locking for each secure allocation (withou
+        t turning failure into an unlock error), emitt
+        ing the required warning once per process. Add
+         a seam that forces the failure result in a un
+        it test and verifies allocation still succeeds
+         and one warning is produced.
+    77 +
+    78 +REVIEW COMPLETE
+
+• Working (8m 16s • esc to interrupt)
+
+
+› Find and fix a bug in @filename
+
+  gpt-5.6-sol high · /private/tmp/evie-review-CED-10-…

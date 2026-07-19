@@ -22,8 +22,10 @@ let package = Package(
         .target(
             name: "VaultCore",
             dependencies: [
-                .product(name: "Sodium", package: "swift-sodium"),
-                .product(name: "Clibsodium", package: "swift-sodium"),
+                // Deliberately the C module only: raw-pointer key
+                // custody needs the C API; the Swift wrapper layer is
+                // unused (wave-003 claude-code #5).
+                .product(name: "Clibsodium", package: "swift-sodium")
             ]
         ),
         .executableTarget(

@@ -35,7 +35,11 @@ public struct UnlockSession: ~Copyable {
     /// inventory and silently drop a committed import — wave-001
     /// claude-code #2).
     public func openGallery() throws -> Gallery {
-        guard custodian.claimWriter() else {
+        // The claim is PROCESS-WIDE per vault directory, not
+        // per-session: a second unlock() minting a second writer was
+        // the wave-003 blocker (silent lost update).
+        let path = VaultProcessRegistry.canonicalPath(vault.layout.root)
+        guard custodian.claimWriter(vaultPath: path) else {
             throw VaultError.galleryAlreadyOpen
         }
         return Gallery(
@@ -56,5 +60,15 @@ public struct UnlockSession: ~Copyable {
     /// carries no decrypted metadata — Codex B6).
     public func snapshot() -> InventorySnapshot {
         InventorySnapshot(inventory)
+    }
+
+    /// Dropping a session without calling `lock()` still revokes: the
+    /// api-shape contract says "deinit self-zeroes", and an escaped
+    /// reader or gallery must not keep decrypting against a custodian
+    /// whose owning session is gone (wave-003 codex #2). Immediate
+    /// deadline: nothing legitimate is draining if the owner was
+    /// dropped. Idempotent after an explicit `lock()`.
+    deinit {
+        custodian.lockAndDrain(drainDeadline: 0)
     }
 }

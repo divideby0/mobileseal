@@ -3,7 +3,9 @@ import Foundation
 
 /// Byte source for an import: pull-based so files stream through a
 /// fixed-size secure buffer and are never held whole in memory.
-private protocol ChunkSource: ~Copyable {
+/// Internal (not private) so tests can inject a source that mutates
+/// between passes and pin the `sourceChangedDuringImport` guards.
+protocol ChunkSource: ~Copyable {
     /// Fills `buffer` from the current position with up to `max`
     /// bytes; returns the byte count (0 at EOF). Never writes past
     /// `max`.
@@ -155,7 +157,9 @@ public actor Gallery {
         return try importSource(&source, metadata: metadata, chunkSize: chunkSize)
     }
 
-    private func importSource<S: ChunkSource & ~Copyable>(
+    /// Internal seam (tests inject mutating sources; public entry
+    /// points wrap it).
+    func importSource<S: ChunkSource & ~Copyable>(
         _ source: inout S, metadata: [UInt8], chunkSize: UInt32
     ) throws -> FileID {
         guard !custodian.isLocked else { throw VaultError.vaultLocked }
@@ -182,10 +186,18 @@ public actor Gallery {
         // Dedup (green gate 1): identity = media bytes. A re-import
         // creates a NEW entry sharing the existing chunks — including
         // their AAD context (aadFileID/epoch/chunkSize) — re-storing
-        // nothing.
+        // nothing. The shortcut only applies when every shared chunk
+        // is still PRESENT in the CAS: if any went missing, we fall
+        // through and re-seal, turning the natural user response to a
+        // broken file ("import it again") into self-repair instead of
+        // a second unreadable entry (wave-003 claude-code #4).
         if let existing = inventory.entries.first(where: {
             $0.dedupHash == dedupHash && $0.unpaddedLength == unpaddedLength
-        }) {
+        }),
+            existing.chunkAddresses.allSatisfy({
+                FileManager.default.fileExists(atPath: layout.chunkURL($0).path)
+            })
+        {
             let entry = InventoryEntry(
                 fileID: fileID, aadFileID: existing.aadFileID, epoch: existing.epoch,
                 chunkSize: existing.chunkSize, unpaddedLength: existing.unpaddedLength,
@@ -261,7 +273,32 @@ public actor Gallery {
             try next.sealObject(dek: dek, galleryID: meta.galleryID, epoch: epoch)
         }
         let commitTx = try tx ?? CommitTx(layout: layout)
-        _ = try commitTx.commit(inventoryObject: object, failpoint: failpoint)
+        do {
+            _ = try commitTx.commit(inventoryObject: object, failpoint: failpoint)
+        } catch {
+            // If the commit POINT was crossed (HEAD now names the new
+            // inventory) before a later durability step failed, adopt
+            // the post-state before rethrowing — otherwise this actor
+            // would rebuild from stale memory and its next commit
+            // would silently erase an already-visible entry (wave-003
+            // codex #5).
+            let committedAddress = ChunkAddress.compute(over: object)
+            if let headData = FileManager.default.contents(atPath: layout.headURL.path),
+                let headAddress = try? Head.parse([UInt8](headData)),
+                headAddress == committedAddress
+            {
+                inventory = next
+                let snapshot = InventorySnapshot(next)
+                for c in continuations.values { c.yield(snapshot) }
+            } else if !(error is SimulatedCrash) {
+                // Not crossed and not a simulated crash (whose WAL
+                // state the recovery tests own): clean the staging dir
+                // so repeated failures cannot accumulate unbounded WAL
+                // directories (wave-003 claude-code #3).
+                commitTx.abort()
+            }
+            throw error
+        }
         inventory = next
         let snapshot = InventorySnapshot(next)
         for c in continuations.values { c.yield(snapshot) }

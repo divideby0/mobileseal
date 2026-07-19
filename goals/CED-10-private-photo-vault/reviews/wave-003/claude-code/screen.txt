@@ -1,0 +1,23 @@
+  regression lock doesn't exercise the path it locks
+  (its own comment concedes this);
+  sourceChangedDuringImport has zero coverage.
+  - 2 minor — dedup-path commit failure leaks a WAL
+  dir; dedup adopts chunk addresses without checking
+  the chunks still exist, so re-importing after chunk
+  loss "succeeds" into a second unreadable entry.
+  - 2 nits — unused Sodium product dependency;
+  Apple-only syscalls in the designated portable core
+  (in scope for this leg, flagged for the CLI leg).
+
+  I removed my probe file; git status --porcelain
+  confirms the tree is as I found it.
+
+· Stewing… (running stop hooks… 2/3 · 5m 2s ·
+↓ 21.6k tokens)
+                                  ◎ /goal active (5m)
+──────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────
+   Model: Opu...
+   cwd: /priv...
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

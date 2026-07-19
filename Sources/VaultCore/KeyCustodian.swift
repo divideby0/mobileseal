@@ -16,6 +16,7 @@ final class KeyCustodian: @unchecked Sendable {
     private var activeReads = 0
     private var zeroed = false
     private var writerClaimed = false
+    private var claimedVaultPath: String?
     /// 32-byte sodium_malloc'd DEK. Freed only in deinit; zeroed at lock
     /// so no reader can ever dereference freed memory.
     private let key: UnsafeMutableRawPointer
@@ -105,15 +106,29 @@ final class KeyCustodian: @unchecked Sendable {
         cond.unlock()
     }
 
-    /// One-shot writer claim: the plaintext plane allows exactly one
-    /// `Gallery` per session (wave-001 claude-code #2 — two instances
-    /// silently lost a committed import). Returns false once claimed.
-    func claimWriter() -> Bool {
+    /// One-shot writer claim, scoped to the VAULT DIRECTORY across all
+    /// sessions in this process — not just this custodian (wave-001
+    /// claude-code #2; hardened per the wave-003 blocker, where a
+    /// second `unlock()` minted a second writer and silently lost a
+    /// committed import). The process-wide claim is released when this
+    /// custodian locks or deinitializes.
+    func claimWriter(vaultPath: String) -> Bool {
         cond.lock()
         defer { cond.unlock() }
         guard !writerClaimed else { return false }
+        guard VaultProcessRegistry.shared.claimWriter(path: vaultPath) else {
+            return false
+        }
         writerClaimed = true
+        claimedVaultPath = vaultPath
         return true
+    }
+
+    private func releaseWriterClaimLocked() {
+        if let path = claimedVaultPath {
+            VaultProcessRegistry.shared.releaseWriter(path: path)
+            claimedVaultPath = nil
+        }
     }
 
     /// Lock: refuse new reads now; wait up to `drainDeadline` seconds
@@ -130,6 +145,7 @@ final class KeyCustodian: @unchecked Sendable {
         // Drained — or deadline passed with stragglers; zero either way.
         sodium_memzero(key, CryptoCore.keyBytes)
         zeroed = true
+        releaseWriterClaimLocked()
         cond.unlock()
     }
 
@@ -143,6 +159,9 @@ final class KeyCustodian: @unchecked Sendable {
     }
 
     deinit {
+        // A custodian dropped without an explicit lock (session went
+        // out of scope) still releases the process-wide writer claim.
+        releaseWriterClaimLocked()
         sodium_free(key)
     }
 }

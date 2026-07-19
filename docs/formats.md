@@ -307,8 +307,13 @@ Implementations MUST verify the AEAD tag on every chunk read (§intake
   unbounded waiting; the concurrent write to bytes libsodium is
   reading is accepted and documented rather than emergent.
 - **Single-process assumption** (Codex A2): one process owns a gallery
-  directory at a time. Concurrent multi-process access semantics are a
-  CLI-leg question.
+  directory at a time. WITHIN a process, the reference implementation
+  enforces one writer per gallery directory across all unlock
+  sessions, serializes unlock attempts per gallery (so concurrent
+  guesses cannot bypass the backoff), and revokes a session's
+  capabilities when the session is dropped without an explicit lock
+  (wave-003 review). Concurrent multi-process access semantics — an
+  on-disk lock — are a CLI-leg question.
 - The sealed plane exposes chunk COUNT and SIZES (padded); tail
   padding to 64 KiB coarsens exact-length leakage; decoy-chunk
   bucketing is deferred to the cloud-sync leg.
