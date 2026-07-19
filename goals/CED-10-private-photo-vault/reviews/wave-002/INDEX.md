@@ -18,11 +18,14 @@ on-disk outcomes:
 | sonarqube   | completed              | [FINDINGS.md](sonarqube/FINDINGS.md)   | (default) | (default) | 0 open issues (compute task pinned in FINDINGS.md)                                                                                                                                             |
 | coderabbit  | completed              | [FINDINGS.md](coderabbit/FINDINGS.md)  | (default) | (default) | finished after the driver died; 4 findings (1 major)                                                                                                                                           |
 
-Blindness caveat, recorded: coderabbit reads the WORKING TREE, not
-just commits — it saw the untracked draft `results/RESULT.md` (one of
-its minors cites it). For wave-003 the draft is moved out of the tree
-for the wave's duration. Interactive reviewers were unaffected (their
-worktrees check out HEAD).
+Blindness caveat, recorded honestly: the draft `results/RESULT.md`
+was accidentally swept into HEAD by a `git add -A` in the wave-001
+fix commit (`27bf0e7`), so ALL wave-002 reviewers could read the
+executor's narrative — a blindness-contract violation by the
+executor, caught because a coderabbit minor cites the file.
+claude-code's findings show no anchoring on it (its majors concern
+code paths RESULT.md does not discuss). For wave-003 the draft is
+removed from HEAD and the working tree for the wave's duration.
 
 ## Merged findings
 
