@@ -42,9 +42,16 @@ enum FormatV0 {
     static let maxChunkSize = VaultFormat.maxChunkSize
     static let defaultChunkSize = VaultFormat.defaultChunkSize
 
-    // Keyring bounds (today exactly one entry, epoch 0; the parser
-    // accepts up to 8 so rotation is a data change, not a format one).
-    static let maxKeyringEntries = 8
+    // Keyring: the LAYOUT is a list keyed by epoch (Codex B4), but
+    // format v0 pins exactly ONE entry (epoch 0) and parsers reject
+    // more — the multi-epoch read rules (per-epoch DEK custody,
+    // authenticated trial-decryption) ship with the rotation leg, and
+    // accepting entries this implementation cannot read would turn
+    // rotation into silent data loss (wave-002 claude-code #4).
+    static let requiredKeyringEntries = 1
+    /// Ceiling on the file length an inventory entry may declare
+    /// (2^48 = 256 TiB — far above any media file; wave-002 #2).
+    static let maxFileBytes: UInt64 = 1 << 48
     static let wrappedDEKLength = CryptoCore.keyBytes + CryptoCore.aeadTagBytes  // 48
 
     // Inventory bounds.

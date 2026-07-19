@@ -53,17 +53,17 @@ no-overwrite: an existing address is never rewritten.
 
 ## gallery.meta
 
-| Offset | Len  | Field                | Constraint                         |
-| ------ | ---- | -------------------- | ---------------------------------- |
-| 0      | 8    | magic                | `MSVMETA0`                         |
-| 8      | 2    | format_version u16   | 0                                  |
-| 10     | 16   | gallery_uuid         |                                    |
-| 26     | 1    | kdf_alg u8           | 1 = Argon2id13                     |
-| 27     | 4    | kdf_opslimit u32     | **bounds: 1 ≤ x ≤ 12**             |
-| 31     | 8    | kdf_memlimit u64 (B) | **bounds: 16 MiB ≤ x ≤ 1 GiB**     |
-| 39     | 16   | kdf_salt             |                                    |
-| 55     | 2    | keyring_count u16    | **1 ≤ x ≤ 8**, no duplicate epochs |
-| 57     | 78·n | keyring entries      | see below                          |
+| Offset | Len  | Field                | Constraint                     |
+| ------ | ---- | -------------------- | ------------------------------ |
+| 0      | 8    | magic                | `MSVMETA0`                     |
+| 8      | 2    | format_version u16   | 0                              |
+| 10     | 16   | gallery_uuid         |                                |
+| 26     | 1    | kdf_alg u8           | 1 = Argon2id13                 |
+| 27     | 4    | kdf_opslimit u32     | **bounds: 1 ≤ x ≤ 12**         |
+| 31     | 8    | kdf_memlimit u64 (B) | **bounds: 16 MiB ≤ x ≤ 1 GiB** |
+| 39     | 16   | kdf_salt             |                                |
+| 55     | 2    | keyring_count u16    | **= 1 in v0** (see below)      |
+| 57     | 78·n | keyring entries      | see below                      |
 
 Keyring entry (78 bytes):
 
@@ -91,10 +91,16 @@ key KEK, nonce `wrap_nonce`, and AAD:
 "mobileseal.dekwrap.v0" ‖ 0x00 ‖ gallery_uuid ‖ epoch u32 ‖ format_version u16
 ```
 
-Today the keyring holds exactly one entry, epoch 0. The list form
-exists so DEK rotation (a later leg) is a data change, not a format
-change (Codex B4): rotation appends an entry with a fresh epoch, and
-every stored object names the epoch it was sealed under.
+The keyring LAYOUT is a list keyed by epoch (Codex B4) so DEK rotation
+needs no byte-layout change: rotation appends an entry with a fresh
+epoch, and every stored object names the epoch it was sealed under.
+Format v0 nonetheless pins `keyring_count` to exactly 1 (epoch 0) and
+parsers MUST reject other counts: this implementation has no
+multi-epoch key custody yet, and accepting entries it cannot read
+would surface rotated content as spurious `authenticationFailed` —
+silent data loss dressed as corruption (wave-002 review). The rotation
+leg raises the allowed count and, with it, the multi-epoch read rules
+below become operative.
 
 ## Chunk object (`chunks/{hex}`)
 
@@ -160,14 +166,14 @@ Inventory AAD:
 
 where `epoch` is the current keyring epoch at sealing time (0 today).
 
-**Epoch discovery (normative):** the sealing epoch is intentionally
-NOT stored in the cleartext header. A reader MUST attempt AEAD open
-under each keyring epoch, highest first, until a tag verifies; because
-the AAD binds the epoch, a successful open authenticates which epoch
-sealed the object (bounded work: the keyring holds at most 8 entries).
-With today's single-entry keyring this degenerates to one attempt.
-Chunk objects need no trial: each inventory entry records its chunks'
-epoch.
+**Epoch discovery:** the sealing epoch is intentionally NOT stored in
+the cleartext header. In format v0 the keyring holds exactly one epoch
+(0), so discovery is trivial. When rotation raises the allowed keyring
+count, the binding rule becomes: attempt AEAD open under each keyring
+epoch, highest first, until a tag verifies — the AAD binds the epoch,
+so a successful open AUTHENTICATES which epoch sealed the object, and
+the keyring bound keeps the work finite. Chunk objects never need
+trial decryption: each inventory entry records its chunks' epoch.
 
 Decrypted body:
 
@@ -185,7 +191,7 @@ Entry (variable length, in order):
 | aad_file_id     | 16 B UUID  | = file_id for first import; original's for dedup        |
 | epoch           | u32        | keyring epoch of the chunks' DEK                        |
 | chunk_size      | u32        | §Chunking bounds                                        |
-| unpadded_length | u64        | true file length                                        |
+| unpadded_length | u64        | true file length, **≤ 2^48** bytes                      |
 | dedup_hash      | 32 B       | BLAKE2b-256(`"mobileseal.dedup.v0" ‖ 0x00 ‖ plaintext`) |
 | chunk_count     | u32        | MUST equal max(1, ceil(unpadded/chunk_size))            |
 | chunk_addresses | 32 B each  | chunk_count entries                                     |

@@ -303,7 +303,15 @@ private var katDir: URL {
             KATManifest.self,
             from: try Data(contentsOf: katDir.appendingPathComponent("expected.json")))
         let pw = try SecureBytes(nfcNormalizedPassword: manifest.password)
-        let vault = try SealedVault(directory: katDir.appendingPathComponent("gallery"))
+        // Open a COPY: SealedVault runs recovery and unlock writes the
+        // throttle sidecar — the committed fixture must stay pristine
+        // structurally, not incidentally (wave-002 claude-code #9).
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vaultcore-kat-copy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try FileManager.default.copyItem(
+            at: katDir.appendingPathComponent("gallery"), to: scratch)
+        let vault = try SealedVault(directory: scratch)
         let session = try vault.unlock(password: pw)
         let reader = session.makeReader()
         for expected in manifest.files where expected.unpaddedLength > 0 {

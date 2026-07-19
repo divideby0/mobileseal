@@ -104,21 +104,40 @@ enum CryptoCore {
         aad: [UInt8],
         object: VaultObjectKind
     ) throws -> Int {
+        try key.withUnsafeBytes { k in
+            try aeadOpen(
+                ciphertext: ciphertext, into: plaintext, rawKey: k,
+                nonce: nonce, aad: aad, object: object)
+        }
+    }
+
+    /// Raw-key overload: decrypts against the caller's key bytes IN
+    /// PLACE — no copy. This is what makes drain-on-lock's force-zero
+    /// real for reads (wave-002 claude-code #1): readers pass the
+    /// custodian's own allocation, so zeroing it mid-decrypt corrupts
+    /// the tag and the read fails closed.
+    static func aeadOpen(
+        ciphertext: ArraySlice<UInt8>,
+        into plaintext: borrowing SecureBytes,
+        rawKey: UnsafeRawBufferPointer,
+        nonce: ArraySlice<UInt8>,
+        aad: [UInt8],
+        object: VaultObjectKind
+    ) throws -> Int {
+        precondition(rawKey.count == keyBytes)
         guard ciphertext.count >= aeadTagBytes,
             plaintext.count >= ciphertext.count - aeadTagBytes
         else { throw VaultError.truncatedObject(object) }
         var mlen: UInt64 = 0
         let rc = plaintext.withUnsafeMutableBytes { m in
-            key.withUnsafeBytes { k in
-                ciphertext.withUnsafeBufferPointer { c in
-                    Array(nonce).withUnsafeBufferPointer { n in
-                        crypto_aead_xchacha20poly1305_ietf_decrypt(
-                            m.baseAddress!.assumingMemoryBound(to: UInt8.self), &mlen,
-                            nil,
-                            c.baseAddress!, UInt64(c.count),
-                            aad, UInt64(aad.count),
-                            n.baseAddress!, k.baseAddress!.assumingMemoryBound(to: UInt8.self))
-                    }
+            ciphertext.withUnsafeBufferPointer { c in
+                nonce.withUnsafeBufferPointer { n in
+                    crypto_aead_xchacha20poly1305_ietf_decrypt(
+                        m.baseAddress!.assumingMemoryBound(to: UInt8.self), &mlen,
+                        nil,
+                        c.baseAddress!, UInt64(c.count),
+                        aad, UInt64(aad.count),
+                        n.baseAddress!, rawKey.baseAddress!.assumingMemoryBound(to: UInt8.self))
                 }
             }
         }

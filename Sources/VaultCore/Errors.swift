@@ -74,6 +74,12 @@ public enum VaultError: Error, Equatable, Hashable, Sendable {
     /// inputs cannot collide with padding (see `SecureBytes`).
     case emptyPassword
 
+    /// The import source's bytes changed between the hashing pass and
+    /// the sealing pass (same length, different content) — committing
+    /// would permanently mislabel the stored chunks with a dedup hash
+    /// describing bytes that were never stored.
+    case sourceChangedDuringImport
+
     // -- environment --
     /// An underlying filesystem operation failed.
     case ioFailure(operation: String, path: String)

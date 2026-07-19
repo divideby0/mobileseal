@@ -41,9 +41,13 @@ public struct SecureBytes: ~Copyable {
     }
 
     /// Copies `source` into secure memory, then zeroes `source` in
-    /// place so the only remaining copy is the guarded one.
+    /// place so the only remaining copy is the guarded one. Empty
+    /// input is refused: no call site has a legitimate empty secret,
+    /// and padding an empty buffer to one zero byte would collide ""
+    /// with "\0" as KDF input (wave-002 claude-code #3).
     public init(consumingAndZeroing source: inout [UInt8]) throws {
-        try self.init(zeroed: max(source.count, 1))
+        guard !source.isEmpty else { throw VaultError.emptyPassword }
+        try self.init(zeroed: source.count)
         source.withUnsafeBufferPointer { src in
             if let base = src.baseAddress, src.count > 0 {
                 ptr.copyMemory(from: base, byteCount: src.count)

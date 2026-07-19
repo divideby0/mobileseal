@@ -27,6 +27,10 @@ public struct SealedVault: Sendable {
     /// neutralize backoff (wave-001 claude-code #7). Tests reach it
     /// via @testable.
     init(directory: URL, clock: VaultClock) throws {
+        // Sealed-plane operations hash without ever allocating secure
+        // memory, so libsodium must be initialized HERE, not lazily on
+        // first SecureBytes (wave-002 claude-code #5).
+        try SodiumRuntime.ensure()
         let layout = VaultLayout(root: directory)
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDir),
@@ -59,6 +63,7 @@ public struct SealedVault: Sendable {
         kdfParams: KDFParams,
         clock: VaultClock
     ) throws -> SealedVault {
+        try SodiumRuntime.ensure()
         try kdfParams.validate()
         let fm = FileManager.default
         let layout = VaultLayout(root: directory)
@@ -201,9 +206,9 @@ public struct SealedVault: Sendable {
             let stored = try FS.read(
                 layout.inventoryURL(address), object: .inventory,
                 maxBytes: FormatV0.maxInventoryObjectBytes)
-            return try withDEK(custodian) { dek in
+            return try custodian.withKey { raw in
                 try Inventory.openObject(
-                    stored: stored, dek: dek, galleryID: meta.galleryID, epoch: epoch)
+                    stored: stored, rawDEK: raw, galleryID: meta.galleryID, epoch: epoch)
             }
         }
 
@@ -223,11 +228,14 @@ public struct SealedVault: Sendable {
             guard let (inventory, address) = best else {
                 throw VaultError.noValidInventory
             }
-            // Repair HEAD to the recovered inventory.
+            // Repair HEAD to the recovered inventory — best-effort in
+            // FULL (wave-002 coderabbit): recovery already succeeded,
+            // so a failed repair write must not abort the unlock.
             let headTmp = layout.root.appendingPathComponent("HEAD.tmp")
-            try FS.write(Head.serialize(address), to: headTmp, fsync: true)
-            _ = try? FileManager.default.replaceItemAt(layout.headURL, withItemAt: headTmp)
-            try? FS.fsyncDir(layout.root)
+            if (try? FS.write(Head.serialize(address), to: headTmp, fsync: true)) != nil {
+                _ = try? FileManager.default.replaceItemAt(layout.headURL, withItemAt: headTmp)
+                try? FS.fsyncDir(layout.root)
+            }
             return inventory
         }
     }
@@ -270,16 +278,3 @@ public struct SealedVault: Sendable {
     }
 }
 
-/// Runs `body` with the custodian's key materialized as a borrowed
-/// `SecureBytes`. Internal shim: copies the 32-byte key into a scoped
-/// secure buffer for APIs that take `borrowing SecureBytes`.
-func withDEK<R>(_ custodian: KeyCustodian, _ body: (borrowing SecureBytes) throws -> R) throws -> R {
-    try custodian.withKey { raw in
-        let key = try SecureBytes(zeroed: raw.count)
-        key.withUnsafeMutableBytes { dst in
-            dst.baseAddress!.copyMemory(from: raw.baseAddress!, byteCount: raw.count)
-        }
-        defer { /* key zeroes on deinit */ }
-        return try body(key)
-    }
-}

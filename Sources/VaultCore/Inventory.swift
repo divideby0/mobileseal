@@ -83,6 +83,11 @@ struct Inventory: Equatable {
             let chunkSize = try r.u32()
             try ChunkGeometry.validate(chunkSize: chunkSize)
             let unpaddedLength = try r.u64()
+            // Bounded like every other declared length (wave-002 #2):
+            // also keeps the chunk-count arithmetic below overflow-free.
+            guard unpaddedLength <= FormatV0.maxFileBytes else {
+                throw VaultError.boundsViolation(.inventory, field: "unpadded_length")
+            }
             let dedupHash = Array(try r.take(CryptoCore.hashBytes))
             let chunkCount = try r.u32()
             let expected = ChunkGeometry.chunkCount(
@@ -145,9 +150,10 @@ struct Inventory: Equatable {
 
     /// Opens a stored inventory object. Structural checks are cheap and
     /// bounded before the AEAD pass; the body parse re-validates every
-    /// field bound.
+    /// field bound. Raw DEK bytes for the same drain-revocation reason
+    /// as `ChunkObject.open`.
     static func openObject(
-        stored: [UInt8], dek: borrowing SecureBytes, galleryID: UUID, epoch: UInt32
+        stored: [UInt8], rawDEK: UnsafeRawBufferPointer, galleryID: UUID, epoch: UInt32
     ) throws -> Inventory {
         guard stored.count <= FormatV0.maxInventoryObjectBytes else {
             throw VaultError.boundsViolation(.inventory, field: "object_length")
@@ -165,7 +171,7 @@ struct Inventory: Equatable {
         let ciphertext = try r.take(r.remaining)
         let plain = try SecureBytes(zeroed: ciphertext.count - CryptoCore.aeadTagBytes + 1)
         let n = try CryptoCore.aeadOpen(
-            ciphertext: ciphertext, into: plain, key: dek, nonce: nonce,
+            ciphertext: ciphertext, into: plain, rawKey: rawDEK, nonce: nonce,
             aad: FormatV0.inventoryAAD(galleryID: galleryID, epoch: epoch),
             object: .inventory)
         // The body parses into ordinary memory: structural data plus

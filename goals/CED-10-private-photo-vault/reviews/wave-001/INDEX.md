@@ -10,7 +10,7 @@ WAVE FAILED: codex (failed) — failures are reported, never silently absorbed; 
 | Tool        | Outcome   | Findings                               | Model     | Effort    | Args | Detail                                        |
 | ----------- | --------- | -------------------------------------- | --------- | --------- | ---- | --------------------------------------------- |
 | claude-code | completed | [FINDINGS.md](claude-code/FINDINGS.md) | opus      | high      |      |                                               |
-| codex       | failed    | [FINDINGS.md](codex/FINDINGS.md)       | (default) | (default) |      | agent_not_found: agent target w1:p5 not found |
+| codex       | failed    | none produced (failed at launch)       | (default) | (default) |      | agent_not_found: agent target w1:p5 not found |
 | sonarqube   | completed | [FINDINGS.md](sonarqube/FINDINGS.md)   | (default) | (default) |      |                                               |
 | coderabbit  | completed | [FINDINGS.md](coderabbit/FINDINGS.md)  | (default) | (default) |      |                                               |
 

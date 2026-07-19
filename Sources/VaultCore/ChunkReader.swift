@@ -162,13 +162,12 @@ public final class ChunkReader: Sendable {
             maxBytes: ChunkObject.headerLength + Int(e.chunkSize) + CryptoCore.aeadTagBytes)
         instrumentation.recordDecrypt()
         return try custodian.withKey { raw in
-            let dek = try SecureBytes(zeroed: raw.count)
-            dek.withUnsafeMutableBytes { dst in
-                dst.baseAddress!.copyMemory(from: raw.baseAddress!, byteCount: raw.count)
-            }
+            // Decrypt against the custodian's OWN allocation — never a
+            // copy — so drain-on-lock's force-zero revokes this read
+            // for real (wave-002 claude-code #1).
             let paddedLen = try ChunkObject.open(
                 stored: stored, declaredChunkSize: e.chunkSize,
-                into: buffer, dek: dek,
+                into: buffer, rawDEK: raw,
                 galleryID: galleryID, fileID: e.aadFileID,
                 chunkIndex: index, epoch: e.epoch)
             try ChunkGeometry.validatePadding(

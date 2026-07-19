@@ -74,7 +74,7 @@ public struct GalleryMeta: Sendable {
         try params.validate()  // before anything can allocate
         let salt = Array(try r.take(CryptoCore.saltBytes))
         let entryCount = try r.u16()
-        guard entryCount >= 1, Int(entryCount) <= FormatV0.maxKeyringEntries else {
+        guard Int(entryCount) == FormatV0.requiredKeyringEntries else {
             throw VaultError.boundsViolation(.galleryMeta, field: "keyring_entry_count")
         }
         var keyring: [KeyringEntry] = []

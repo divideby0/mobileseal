@@ -195,8 +195,13 @@ public actor Gallery {
             return fileID
         }
 
-        // Pass 2: chunk, pad, seal, stage.
+        // Pass 2: chunk, pad, seal, stage. A second hash runs over the
+        // bytes actually sealed and must match pass 1 — a source whose
+        // contents changed between passes (same length) would otherwise
+        // commit chunks permanently mislabeled by the pass-1 dedup hash
+        // (wave-002 claude-code #6).
         try source.rewind()
+        var sealedHasher = CryptoCore.Blake2bStream(domain: FormatV0.dedupDomain)
         let tx = try CommitTx(layout: layout)
         var addresses: [ChunkAddress] = []
         let chunkCount = ChunkGeometry.chunkCount(
@@ -212,14 +217,18 @@ public actor Gallery {
                         ofChunk: index, unpaddedLength: unpaddedLength, chunkSize: chunkSize))
                 let got = try source.read(into: buffer, max: want)
                 guard got == want else {
-                    throw VaultError.ioFailure(operation: "read", path: "import source changed size")
+                    throw VaultError.sourceChangedDuringImport
                 }
+                sealedHasher.update(secure: buffer, count: got)
                 let paddedLen = ChunkGeometry.paddedLength(
                     ofChunk: index, unpaddedLength: unpaddedLength, chunkSize: chunkSize)
                 let sealed = try sealChunk(
                     buffer, paddedLen: paddedLen, lease: custodian.leaseKey(),
                     fileID: fileID, index: index)
                 addresses.append(try tx.stageChunk(sealed))
+            }
+            guard sealedHasher.finalize() == dedupHash else {
+                throw VaultError.sourceChangedDuringImport
             }
             let entry = InventoryEntry(
                 fileID: fileID, aadFileID: fileID, epoch: epoch, chunkSize: chunkSize,

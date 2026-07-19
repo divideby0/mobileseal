@@ -63,12 +63,14 @@ enum ChunkObject {
 
     /// Opens a stored chunk into caller-provided secure memory,
     /// verifying the AEAD tag and the positional AAD. Returns the
-    /// padded plaintext length.
+    /// padded plaintext length. Takes the DEK as RAW bytes so readers
+    /// decrypt against the custodian's live allocation (drain-on-lock
+    /// force-zero then genuinely revokes in-flight reads).
     static func open(
         stored: [UInt8],
         declaredChunkSize: UInt32,
         into plaintext: borrowing SecureBytes,
-        dek: borrowing SecureBytes,
+        rawDEK: UnsafeRawBufferPointer,
         galleryID: UUID,
         fileID: FileID,
         chunkIndex: UInt64,
@@ -78,7 +80,7 @@ enum ChunkObject {
         return try CryptoCore.aeadOpen(
             ciphertext: header.ciphertext,
             into: plaintext,
-            key: dek,
+            rawKey: rawDEK,
             nonce: header.nonce,
             aad: FormatV0.chunkAAD(
                 galleryID: galleryID, fileID: fileID, chunkIndex: chunkIndex, epoch: epoch),

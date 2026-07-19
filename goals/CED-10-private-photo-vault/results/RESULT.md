@@ -177,8 +177,23 @@ silicon is consistent with these numbers.
 
 ## Gate 9 — blind review wave
 
-See `reviews/wave-001/INDEX.md` (reconciled merged findings with
-dispositions). {PENDING AT WRITE TIME — updated after the wave.}
+Two waves, both fully reconciled:
+
+- **wave-001** (`reviews/wave-001/INDEX.md`): claude-code (opus/high)
+  13 findings — three majors, two of them repro-confirmed (readRange
+  overflow trap; two-Gallery silent import loss); coderabbit 34
+  findings (two real code fixes, one real contract gap — inventory
+  epoch discoverability — the rest against immutable provenance
+  artifacts, rejected with reasons); sonarqube 0 open. Codex FAILED
+  on its recurring spawn race (`agent_not_found` after the automatic
+  retry) — recorded as a wave failure per the never-absorbed rule.
+  Every accepted finding was fixed and regression-locked in commit
+  `27bf0e7` (see the INDEX's 16-item fixed list + 5 reasoned
+  rejections).
+- **wave-002** (`reviews/wave-002/INDEX.md`): rerun of all four
+  reviewers, blind, against the fixed tree — so codex's review
+  actually happened and the fixes themselves got re-reviewed.
+  {WAVE-002 OUTCOME RECORDED AFTER COMPLETION}
 
 ## Follow-ups
 
@@ -196,3 +211,13 @@ dispositions). {PENDING AT WRITE TIME — updated after the wave.}
   libsodium xcframework. Fine for this leg; the CLI leg should
   revisit (Linux uses the system libsodium via pkg-config, so version
   skew between platforms is possible and worth pinning there).
+- **`.coderabbit.yaml` missing**: the EVA-9 convention excludes
+  `goals/**/reviews/**` (and session provenance like `goals/**/adhd/**`)
+  via `reviews.path_filters` so CodeRabbit stops re-litigating
+  immutable records — wave-001's noise against adhd artifacts was
+  exactly this. Could not be added mid-goal without perturbing a
+  running blind wave; first commit of the next goal should add it.
+- **Metadata custody upgrade**: if the App Shell leg puts plaintext
+  EXIF/names in the metadata blob, revisit holding blobs in
+  `SecureBytes` (today: opaque bytes in ordinary heap, access-revoked
+  on lock — the documented wave-001 trade).
