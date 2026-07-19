@@ -65,3 +65,41 @@
 6. **What is the rollback threat model?** An authenticated old manifest and old HEAD can remain cryptographically valid, but the documents do not say whether rollback detection is required, deferred to signed CRDT history, or explicitly out of scope.
 
 7. **What happens when secure-memory guarantees cannot be obtained?** The API shape does not decide whether `sodium_malloc` or `mlock` failure aborts unlock, falls back to ordinary memory with a surfaced warning, or makes the platform unsupported.
+
+## Dispositions (2026-07-19, recorded by the drafting session; accepted by cedric)
+
+Blocking: B1 fixed — random 24-byte per-chunk nonces in a versioned
+header supersede deterministic derivation (GOAL.md WS C.2). B2 fixed —
+exact primitives + envelope fields normative (WS B.1). B3 fixed — AAD
+binds gallery/file/index/epoch/version (WS C.2). B4 fixed —
+gallery.meta is an epoch keyring (WS B.1). B5 fixed — drain-on-lock
+semantics + race gate (WS A.3, gate 5). B6 fixed — snapshots carry
+encrypted refs only (api-shape amendment 2). B7 fixed — feasibility
+spike with documented fallback (WS A.2). B8 fixed — crash protocol
+specified + fault-injection gate (WS C.6, gate 4). B9 fixed — local
+encrypted inventory format-v0, CRDT leg supersedes (WS C.5). B10 fixed
+— normative padding rules incl. zero-byte files (WS C.4). B11 fixed —
+corruption matrix gate (gate 1). B12 fixed — custody gate narrowed to
+observable claims (gate 3). B13 fixed — param bounds validation +
+honest macOS-only benchmark (WS B.2/B.5, gate 8). B14 fixed —
+known-answer vectors + normative format doc (WS C.8, gate 7). B15
+fixed — VaultCore unlock rate-limit + gate (WS B.4, gate 6).
+
+Advisories: A1 fixed (sealed-plane language: address audit ≠
+authenticity, kept in api-shape risks). A2 deferred-to-executor —
+single-process assumption documented; multi-process semantics are a
+CLI-leg question. A3 fixed — positive-compilation controls (WS A.3).
+A4 fixed — digest lengths + domain separation (WS C.3). A5 fixed —
+password as normalized zeroed bytes (WS B.3). A6 fixed — streaming
+scope trimmed (api-shape amendment 3). A7 fixed — wave gate now has
+acceptance criteria (gate 9). A8 fixed — bounded chunk-size range
+(WS C.1).
+
+Questions: Q1 answered by drain-on-lock + reference-held key custody.
+Q2 answered — local inventory v0 (WS C.5). Q3 answered — file IDs =
+random UUIDs, retry semantics in WS C.6. Q4 answered — dedup identity
+= media bytes; re-import shares chunks, new entry (gate 1). Q5
+answered — recovery rules in WS C.6. Q6 out-of-scope-with-reason —
+rollback detection deferred to the signed-CRDT leg; a lone local
+vault has no reference point to detect rollback against. Q7 answered
+— mlock best-effort policy (executor notes).

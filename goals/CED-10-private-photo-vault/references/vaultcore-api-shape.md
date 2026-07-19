@@ -90,3 +90,27 @@ one layered design rather than competing:
   notifications (feeds Playback leg).
 - Auto-lock as lease renewal (backgrounding/timeout) atop the
   generation counter (feeds App Shell leg, spec §11).
+
+## Post-review amendments (2026-07-19, after blind Codex plan review)
+
+The composed shape above stands, with four amendments from
+`codex-plan-review-20260719.md` (accepted by cedric in chat):
+
+1. **Drain-on-lock** (B5): `lock()` refuses new reads immediately,
+   waits up to ~500 ms for in-flight reads, then force-zeroes the DEK;
+   readers that lose the race fail closed with a typed lock error.
+   The generation counter alone is not the synchronization mechanism —
+   key lifetime is reference-held during a read and released at read
+   end or drain deadline, whichever first.
+2. **Snapshot metadata custody** (B6): immutable inventory snapshots
+   carry encrypted metadata blobs and structural refs only; decrypted
+   names/dates/hashes are produced by session-scoped accessors and are
+   not retained inside Sendable snapshot values, so lock revokes
+   metadata access along with content access.
+3. **Streaming scope trimmed** (A6): the resident-plaintext budget and
+   `StreamingSessionActor` move to the playback leg. CED-10 ships only
+   a minimal chunk-range read seam plus a test proving that custody
+   machinery can layer on without API breakage.
+4. **Secure-memory failure policy** (Q7): `sodium_malloc` failure
+   aborts unlock with a typed error; `mlock` failure logs and
+   proceeds (page-locking is best-effort on iOS).
