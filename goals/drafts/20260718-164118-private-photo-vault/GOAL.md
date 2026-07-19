@@ -71,11 +71,19 @@ and session-001 decisions:
 2. Chunk address = BLAKE2b(ciphertext); manifest-level dedup via a
    plaintext BLAKE2b carried inside encrypted per-file metadata
    (session-001 Q6 — storage stays fully opaque, import-time dedup).
-3. On-disk layout per spec §6 (`galleries/{id}/gallery.meta`,
+3. Tail-chunk padding (grill Q12): every file's final chunk is padded
+   to a fixed boundary before encryption so exact file sizes are not
+   inferable from ciphertext chunk sizes; padding length is recorded
+   inside encrypted metadata, and the boundary is part of the format
+   doc. (Full decoy-chunk/bucketing schemes are deliberately deferred
+   to the cloud leg — they layer additively; un-leaking exact sizes is
+   the part that ossifies.)
+4. On-disk layout per spec §6 (`galleries/{id}/gallery.meta`,
    `chunks/{hash}`, …); random-access decrypt of an arbitrary chunk
    range; AEAD tag verified on every read.
-4. A short `docs/formats.md` describing gallery.meta and the chunk/CAS
-   layout — the first cut of the cross-platform contract.
+5. A short `docs/formats.md` describing gallery.meta, the chunk/CAS
+   layout, and the padding boundary — the first cut of the
+   cross-platform contract.
 
 ## Green gates
 

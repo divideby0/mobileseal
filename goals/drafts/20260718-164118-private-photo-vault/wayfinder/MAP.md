@@ -93,6 +93,11 @@ beyond this map's destination.
   playback leg can adopt a 1–2 MiB video profile if scrub latency
   demands. Folded into the crypto goal (Workstream C).
 
+- [Shape-leak mitigation: tail-chunk padding](../grilling/session-001-20260718-165000.md)
+  — files' final chunks pad to a fixed boundary before encryption
+  (exact sizes unrecoverable from ciphertext); decoy-chunk bucketing
+  deferred to the cloud leg, where it layers additively.
+
 ## Not yet specified
 
 - Import fidelity details: Live Photos, HEIC/ProRAW, bursts, EXIF
