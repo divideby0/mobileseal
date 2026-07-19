@@ -1,2 +1,4 @@
 .envrc.local
 node_modules/
+.build/
+.swiftpm/
