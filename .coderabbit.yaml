@@ -1,0 +1,16 @@
+# CodeRabbit configuration (CED-10 RESULT follow-up; EVA-9 convention).
+#
+# Goal records under goals/ are immutable provenance once written:
+# review transcripts, ADHD ideation artifacts, grilling transcripts,
+# and locked GOAL/RESULT files are historical records, not living code.
+# Wave-001 of CED-10 spent most of its findings re-litigating those
+# artifacts; these filters keep reviews pointed at the code.
+reviews:
+  path_filters:
+    - "!goals/**/reviews/**"
+    - "!goals/**/adhd/**"
+    - "!goals/**/grilling/**"
+    - "!goals/**/handoffs/**"
+    - "!goals/**/references/**"
+    - "!goals/**/results/**"
+    - "!goals/**/wayfinder/**"
