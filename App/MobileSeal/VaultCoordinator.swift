@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import VaultCore
 
 extension Optional where Wrapped: ~Copyable {
@@ -47,7 +48,27 @@ enum UnlockFailure: Equatable, Sendable {
     /// `galleryAlreadyOpen`: single-scene policy says this surfaces as
     /// "vault is open elsewhere", never a crash.
     case vaultOpenElsewhere
+    /// Rollback detector fired (CED-13 WS B.7): a known device
+    /// presented an older manifest than this device has seen — the
+    /// signature of restoring the vault from an older backup. The UI
+    /// offers the acceptance flow (re-unlock with `acceptRollback`),
+    /// which re-baselines and RECORDS the acceptance.
+    case restoredFromOlderBackup
     case other(String)
+}
+
+/// One soft-deleted aggregate as the Recently Deleted screen shows it
+/// (CED-13 WS C.2): the item (thumbnail still renderable — its entries
+/// are untouched until purge) plus its expiry clock.
+struct RecentlyDeletedItem: Equatable, Sendable, Identifiable {
+    let item: MediaItem
+    let deletedAt: Date
+    let expiresAt: Date
+    var id: FileID { item.id }
+
+    var daysLeft: Int {
+        max(0, Int(ceil(expiresAt.timeIntervalSinceNow / 86400)))
+    }
 }
 
 enum GalleryFailure: Equatable, Sendable {
@@ -74,6 +95,10 @@ protocol VaultUISink: AnyObject, Sendable {
     func phaseChanged(_ phase: VaultPhase)
     func unlockFailed(_ failure: UnlockFailure)
     func itemsChanged(_ items: [MediaItem], report: IndexReport)
+    /// Soft-deleted aggregates for the Recently Deleted screen
+    /// (CED-13 WS C.2); emptied on lock like every plaintext-adjacent
+    /// list.
+    func recentlyDeletedChanged(_ items: [RecentlyDeletedItem])
     /// Fresh reader per committed generation (Codex B4); nil on lock.
     func readerChanged(_ reader: ChunkReader?)
     /// Fresh STREAMING reader per committed generation (CED-12 WS A);
@@ -107,6 +132,11 @@ actor VaultCoordinator {
 
     private let container: AppContainer
     private let calibration: CalibrationRunner
+    /// Device identity custody (CED-13 WS A.1): Keychain-backed in
+    /// production; injectable for app-hosted tests.
+    private let deviceKeyStore: any DeviceKeyStore
+    /// Human-readable name recorded in trust-list registrations.
+    private let deviceName: String
     private weak var sink: (any VaultUISink)?
 
     private var session: UnlockSession?
@@ -129,9 +159,18 @@ actor VaultCoordinator {
     private var snapshotTask: Task<Void, Never>?
     private var importTask: Task<Void, Never>?
     private(set) var phase: VaultPhase = .starting
+    /// The unlocked gallery's soft-delete ledger (device-local,
+    /// CED-13 WS C.2); nil while locked.
+    private var recentlyDeletedStore: RecentlyDeletedStore?
 
-    init(container: AppContainer, calibration: CalibrationRunner? = nil) {
+    init(
+        container: AppContainer, calibration: CalibrationRunner? = nil,
+        deviceKeyStore: (any DeviceKeyStore)? = nil,
+        deviceName: String? = nil
+    ) {
         self.container = container
+        self.deviceKeyStore = deviceKeyStore ?? KeychainDeviceKeyStore()
+        self.deviceName = deviceName ?? "This Device"
         if let calibration {
             self.calibration = calibration
         } else if UITestSupport.isUITestMode {
@@ -200,7 +239,10 @@ actor VaultCoordinator {
         do {
             let dir = container.newGalleryDirectory()
             let pw = try SecureBytes(nfcNormalizedPassword: password)
-            let vault = try SealedVault.create(at: dir, password: pw, kdfParams: params)
+            let identity = try deviceKeyStore.loadOrCreateIdentity()
+            let vault = try SealedVault.create(
+                at: dir, password: pw, kdfParams: params,
+                identity: identity, deviceName: deviceName)
             galleryDirectory = dir
             await adoptUnlocked(vault: vault, password: password)
         } catch {
@@ -212,7 +254,12 @@ actor VaultCoordinator {
 
     // MARK: - Unlock
 
-    func unlock(password: String) async {
+    /// `acceptRollback` is the user-visible "restored from an older
+    /// backup?" acceptance (CED-13 WS B.7): set only after the UI
+    /// surfaced `.restoredFromOlderBackup` and the user chose to
+    /// continue — it re-baselines the high-water mark and RECORDS the
+    /// acceptance in the device-local store.
+    func unlock(password: String, acceptRollback: Bool = false) async {
         guard phase == .locked else { return }
         guard let dir = galleryDirectory else {
             phase = .needsSetup
@@ -223,21 +270,30 @@ actor VaultCoordinator {
         await publishPhase()
         do {
             let vault = try SealedVault(directory: dir)
-            await adoptUnlocked(vault: vault, password: password)
+            await adoptUnlocked(
+                vault: vault, password: password, acceptRollback: acceptRollback)
         } catch {
             await failUnlock(error)
         }
     }
 
     /// Shared unlock tail for create + unlock: runs the KDF (blocking
-    /// this actor, deliberately — the UI thread stays free), opens the
-    /// single writer, adopts the session into actor storage, starts
-    /// the snapshot feed.
-    private func adoptUnlocked(vault: SealedVault, password: String) async {
+    /// this actor, deliberately — the UI thread stays free), performs
+    /// the v0→v1 migration transparently when needed (CED-13 WS C.1),
+    /// opens the single writer, TOFU-registers this device, adopts the
+    /// session into actor storage, starts the snapshot feed, and
+    /// hard-tombstones expired soft-deletes.
+    private func adoptUnlocked(
+        vault: SealedVault, password: String, acceptRollback: Bool = false
+    ) async {
         let s: UnlockSession
         do {
             let pw = try SecureBytes(nfcNormalizedPassword: password)
-            s = try vault.unlock(password: pw)
+            let identity = try deviceKeyStore.loadOrCreateIdentity()
+            let rollbackStore = FileRollbackStateStore(fileURL: container.rollbackStateURL)
+            s = try vault.unlock(
+                password: pw, identity: identity, deviceName: deviceName,
+                rollbackStore: rollbackStore, acceptRollback: acceptRollback)
         } catch {
             await failUnlock(error)
             return
@@ -261,9 +317,22 @@ actor VaultCoordinator {
         gallery = g
         chunkProvider = vault.makeChunkProvider()
         index = MediaIndex()
+        recentlyDeletedStore = RecentlyDeletedStore(
+            fileURL: container.recentlyDeletedURL(galleryID: vault.meta.galleryID))
         phase = .unlocked(importing: false)
         await publishPhase()
+
+        // TOFU self-registration at first write-capable unlock (WS
+        // A.2): a no-op when already listed. A failure here is not an
+        // unlock failure — registration also folds into the next
+        // commit automatically.
+        try? await g.ensureDeviceRegistered()
+
         startSnapshotFeed(g)
+
+        // 30-day expiry (WS C.2): expired soft-deletes become hard
+        // tombstones for the whole aggregate.
+        await purgeExpiredSoftDeletes()
     }
 
     private func failUnlock(_ error: Error) async {
@@ -309,7 +378,28 @@ actor VaultCoordinator {
                 return
             }
         }
-        let items = index.resolvedItems(in: snapshot)
+        let allItems = index.resolvedItems(in: snapshot)
+        // Soft-delete split (CED-13 WS C.2): soft-deleted aggregates
+        // leave the grid but stay renderable in Recently Deleted —
+        // their entries are untouched until purge/expiry.
+        let softDeleted = recentlyDeletedStore?.all ?? []
+        let hiddenOriginals = Set(softDeleted.compactMap(\.originalFileID))
+        let items = allItems.filter { !hiddenOriginals.contains($0.id) }
+        let deletedAtByID = Dictionary(
+            uniqueKeysWithValues: softDeleted.compactMap { agg in
+                agg.originalFileID.map { ($0, agg.deletedAt) }
+            })
+        let recentlyDeleted =
+            allItems.compactMap { item -> RecentlyDeletedItem? in
+                guard let deletedAt = deletedAtByID[item.id] else { return nil }
+                return RecentlyDeletedItem(
+                    item: item, deletedAt: deletedAt,
+                    expiresAt: deletedAt.addingTimeInterval(RecentlyDeletedStore.retention))
+            }
+            .sorted { $0.deletedAt > $1.deletedAt }
+        // Ledger hygiene: rows whose entries vanished from the
+        // manifest (purged elsewhere) are dropped.
+        recentlyDeletedStore?.compact(keepingKnown: Set(allItems.map(\.id)))
         let report = IndexReport(
             orphanThumbnails: index.orphanThumbnails.count,
             missingThumbnails: index.missingThumbnails.count,
@@ -328,7 +418,96 @@ actor VaultCoordinator {
             sink?.readerChanged(reader)
             sink?.streamingReaderChanged(streaming)
             sink?.itemsChanged(items, report: report)
+            sink?.recentlyDeletedChanged(recentlyDeleted)
         }
+    }
+
+    // MARK: - Two-tier delete (CED-13 WS C.2)
+
+    /// The media AGGREGATE for a top-level item: original + linked
+    /// thumbnail + Live-Photo video — resolved from the CURRENT index
+    /// so purge tombstones cover every member (reviews B13/Q6).
+    private func aggregateMembers(of originalID: FileID) -> [FileID] {
+        guard let snapshot = latestSnapshot else { return [originalID] }
+        let items = index.resolvedItems(in: snapshot)
+        guard let item = items.first(where: { $0.id == originalID }) else {
+            return [originalID]
+        }
+        return [item.id] + [item.thumbnailID, item.livePhotoVideoID].compactMap { $0 }
+    }
+
+    /// Tier 1 — "delete for myself": soft, device-local, restorable.
+    /// The manifest is untouched; the aggregate moves to Recently
+    /// Deleted for 30 days.
+    func softDeleteItems(_ originalIDs: [FileID]) async {
+        guard phase.isUnlocked, let gallery, let store = recentlyDeletedStore else { return }
+        for id in originalIDs {
+            store.softDelete(originalID: id, memberIDs: aggregateMembers(of: id))
+        }
+        await republishFromCurrentSnapshot(gallery)
+    }
+
+    /// Restore clears the soft state; the entries were never touched.
+    func restoreDeletedItem(_ originalID: FileID) async {
+        guard phase.isUnlocked, let gallery, let store = recentlyDeletedStore else { return }
+        store.remove(originalID: originalID)
+        await republishFromCurrentSnapshot(gallery)
+    }
+
+    /// Tier 2 — "delete for everyone": signed hard Tombstones for the
+    /// WHOLE aggregate (single-user semantics: this device is always
+    /// authorized). Manual purge from Recently Deleted.
+    func purgeDeletedItems(_ originalIDs: [FileID]) async {
+        guard phase.isUnlocked, let gallery, let store = recentlyDeletedStore else { return }
+        for id in originalIDs {
+            let members = store.remove(originalID: id)?.memberFileIDs
+                ?? aggregateMembers(of: id)
+            do {
+                try await gallery.deleteEntries(members)
+            } catch {
+                // vaultLocked mid-purge: the ledger row is already
+                // gone but the entries remain — they resurface in the
+                // grid on next unlock rather than silently lingering
+                // half-deleted.
+                Self.logPurgeFailure(error)
+                break
+            }
+        }
+        await republishFromCurrentSnapshot(gallery)
+    }
+
+    /// 30-day expiry: expired aggregates hard-tombstone automatically.
+    func purgeExpiredSoftDeletes() async {
+        guard phase.isUnlocked, let gallery, let store = recentlyDeletedStore else { return }
+        let expired = store.expired()
+        guard !expired.isEmpty else { return }
+        for aggregate in expired {
+            do {
+                try await gallery.deleteEntries(aggregate.memberFileIDs)
+            } catch {
+                Self.logPurgeFailure(error)
+                return
+            }
+            if let id = aggregate.originalFileID {
+                store.remove(originalID: id)
+            }
+        }
+        await republishFromCurrentSnapshot(gallery)
+    }
+
+    private static let log = Logger(
+        subsystem: "com.gmail.cedric.hurst.mobileseal", category: "delete")
+
+    private static func logPurgeFailure(_ error: Error) {
+        // Typed vault errors only; never plaintext.
+        log.error("purge failed: \(String(describing: error), privacy: .public)")
+    }
+
+    /// Re-runs the ingest pipeline over the CURRENT committed snapshot
+    /// (soft-delete changes alter presentation without a commit).
+    private func republishFromCurrentSnapshot(_ gallery: Gallery) async {
+        let snapshot = await gallery.snapshot()
+        await ingest(snapshot, from: gallery)
     }
 
     // MARK: - Import (GOAL WS B)
@@ -481,12 +660,14 @@ actor VaultCoordinator {
         chunkProvider = nil
         index.purge()
         latestSnapshot = nil
+        recentlyDeletedStore = nil
 
         let sink = self.sink
         await MainActor.run {
             sink?.readerChanged(nil)
             sink?.streamingReaderChanged(nil)
             sink?.itemsChanged([], report: IndexReport())
+            sink?.recentlyDeletedChanged([])
             sink?.importProgressed(nil)
         }
 
@@ -519,6 +700,8 @@ actor VaultCoordinator {
             return .rateLimited(retryAfterSeconds: retryAfter)
         case .galleryAlreadyOpen:
             return .vaultOpenElsewhere
+        case .manifestRolledBack:
+            return .restoredFromOlderBackup
         default:
             return .other(String(describing: vaultError))
         }

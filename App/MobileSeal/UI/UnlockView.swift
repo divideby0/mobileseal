@@ -51,12 +51,35 @@ struct UnlockView: View {
         }
         .padding()
         .onAppear { focused = true }
+        // Rollback acceptance flow (CED-13 WS B.7): the detector saw a
+        // KNOWN device presenting an older manifest — the signature of
+        // an older-backup restore. Continuing re-baselines and RECORDS
+        // the acceptance; cancelling leaves the vault locked.
+        .alert(
+            "Restored from an older backup?",
+            isPresented: Binding(
+                get: { store.lastUnlockFailure == .restoredFromOlderBackup },
+                set: { if !$0 { store.lastUnlockFailure = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Open Anyway") {
+                store.unlock(password: password, acceptRollback: true)
+                password = ""
+            }
+            .accessibilityIdentifier("rollback-accept")
+        } message: {
+            Text(
+                "This vault is older than the last one this device saw — usually because it was restored from a backup. If that's expected, continue; the restore will be recorded. If not, someone may have replaced the vault with an older copy."
+            )
+        }
     }
 
     private func attempt() {
         guard !password.isEmpty else { return }
+        // The password stays in the field until the phase leaves the
+        // unlock screen: the rollback acceptance re-submit needs it.
         store.unlock(password: password)
-        password = ""
     }
 }
 
@@ -85,6 +108,10 @@ struct UnlockFailureText: View {
                 seconds.rounded(.up))
         case .vaultOpenElsewhere:
             return "The vault is open elsewhere. Close the other view first."
+        case .restoredFromOlderBackup:
+            // Presented as an alert with the acceptance action; this
+            // inline text is the fallback while the alert is up.
+            return "This vault looks restored from an older backup."
         case .other(let text):
             return "Unlock failed: \(text)"
         }

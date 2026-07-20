@@ -16,7 +16,10 @@ import VaultCore
     private func makeWarmStore() async throws -> (VaultStore, AppContainer) {
         let container = try TestSupport.makeContainer()
         let coordinator = VaultCoordinator(
-            container: container, calibration: TestSupport.fastCalibration)
+            container: container, calibration: TestSupport.fastCalibration,
+            deviceKeyStore: TestDeviceKeyStore(
+                url: container.deviceLocalDir.appendingPathComponent("test-device-key")),
+            deviceName: "app-test-device")
         // Isolated defaults domain: these tests are app-hosted, and
         // writing lock prefs into .standard would poison later real
         // launches on this simulator (bit the e2e gate).

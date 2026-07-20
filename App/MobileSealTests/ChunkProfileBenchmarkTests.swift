@@ -91,12 +91,17 @@ struct ChunkProfileBenchmarkTests {
                 "vault-\(profileLabel)", isDirectory: true)
             var password = Array("bench password".utf8)
             let pw = try SecureBytes(consumingAndZeroing: &password)
+            let identity = try DeviceIdentity.generate()
+            let rollback = FileRollbackStateStore(
+                fileURL: scratch.appendingPathComponent("bench-rollback-\(profileLabel).json"))
             let vault = try SealedVault.create(
                 at: vaultDir, password: pw,
-                kdfParams: KDFParams(opslimit: 1, memlimit: 16 << 20))
+                kdfParams: KDFParams(opslimit: 1, memlimit: 16 << 20),
+                identity: identity, deviceName: "bench")
             var pw2 = Array("bench password".utf8)
             let session = try vault.unlock(
-                password: try SecureBytes(consumingAndZeroing: &pw2))
+                password: try SecureBytes(consumingAndZeroing: &pw2),
+                identity: identity, deviceName: "bench", rollbackStore: rollback)
             let gallery = try session.openGallery()
 
             var videoIDs: [(Spec, FileID, UInt64, String)] = []

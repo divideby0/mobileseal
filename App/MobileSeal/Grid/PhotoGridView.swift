@@ -14,6 +14,11 @@ struct PhotoGridView: UIViewRepresentable {
     let store: VaultStore
     let pipeline: ThumbnailPipeline
     var onScroll: () -> Void
+    /// Multi-select mode (CED-13 WS C.2): taps toggle selection
+    /// instead of opening the pager; cells show checkmarks.
+    var selectionMode: Bool = false
+    var selection: Set<FileID> = []
+    var onToggleSelection: (FileID) -> Void = { _ in }
 
     func makeUIView(context: Context) -> UICollectionView {
         let collectionView = UICollectionView(
@@ -69,7 +74,10 @@ struct PhotoGridView: UIViewRepresentable {
             let registration = UICollectionView.CellRegistration<PhotoCell, FileID> {
                 [weak self] cell, _, fileID in
                 guard let self, let item = self.itemsByID[fileID] else { return }
-                cell.configure(with: item, pipeline: self.parent.pipeline)
+                cell.configure(
+                    with: item, pipeline: self.parent.pipeline,
+                    selectionMode: self.parent.selectionMode,
+                    isSelected: self.parent.selection.contains(fileID))
             }
             dataSource = UICollectionViewDiffableDataSource<Int, FileID>(
                 collectionView: collectionView
@@ -101,6 +109,10 @@ struct PhotoGridView: UIViewRepresentable {
                 let item = itemsByID[id]
             else { return }
             parent.onScroll()  // selection counts as interaction
+            if parent.selectionMode {
+                parent.onToggleSelection(id)
+                return
+            }
             // Photos-lite pager (CED-12 WS C.1) over the CURRENT item
             // list; the morph reads live tile frames so dismissing
             // from a different page still lands on its tile.
@@ -244,6 +256,8 @@ final class PhotoCell: UICollectionViewCell {
     /// Video duration badge (CED-12 gate 2: grid shows poster +
     /// duration).
     private let durationLabel = UILabel()
+    /// Multi-select checkmark (CED-13 WS C.2).
+    private let selectionBadge = UIImageView()
     private var loadTask: Task<Void, Never>?
     private var loadedID: FileID?
     private var pipeline: ThumbnailPipeline?
@@ -266,6 +280,17 @@ final class PhotoCell: UICollectionViewCell {
         durationLabel.shadowOffset = CGSize(width: 0, height: 1)
         durationLabel.isHidden = true
         contentView.addSubview(durationLabel)
+        selectionBadge.translatesAutoresizingMaskIntoConstraints = false
+        selectionBadge.isHidden = true
+        contentView.addSubview(selectionBadge)
+        NSLayoutConstraint.activate([
+            selectionBadge.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor, constant: -6),
+            selectionBadge.topAnchor.constraint(
+                equalTo: contentView.topAnchor, constant: 6),
+            selectionBadge.widthAnchor.constraint(equalToConstant: 22),
+            selectionBadge.heightAnchor.constraint(equalToConstant: 22),
+        ])
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
             imageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
@@ -298,6 +323,8 @@ final class PhotoCell: UICollectionViewCell {
         imageView.image = nil
         badge.isHidden = true
         durationLabel.isHidden = true
+        selectionBadge.isHidden = true
+        imageView.alpha = 1
     }
 
     /// m:ss (or h:mm:ss) for the grid badge.
@@ -311,10 +338,23 @@ final class PhotoCell: UICollectionViewCell {
             : String(format: "%d:%02d", m, s)
     }
 
-    func configure(with item: MediaItem, pipeline: ThumbnailPipeline) {
+    func configure(
+        with item: MediaItem, pipeline: ThumbnailPipeline,
+        selectionMode: Bool = false, isSelected: Bool = false
+    ) {
         loadedID = item.id
         self.pipeline = pipeline
         accessibilityIdentifier = "photo-cell-\(item.id.description)"
+        if selectionMode {
+            selectionBadge.image = UIImage(
+                systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            selectionBadge.tintColor = isSelected ? .systemBlue : .white
+            selectionBadge.isHidden = false
+            imageView.alpha = isSelected ? 0.7 : 1
+        } else {
+            selectionBadge.isHidden = true
+            imageView.alpha = 1
+        }
         if item.isVideo, let duration = item.durationSeconds {
             durationLabel.text = Self.formatDuration(duration)
             durationLabel.isHidden = false

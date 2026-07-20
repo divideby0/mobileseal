@@ -7,6 +7,11 @@ struct GalleryView: View {
 
     @State private var showPicker = false
     @State private var showSettings = false
+    /// Multi-select delete state (CED-13 WS C.2).
+    @State private var selectionMode = false
+    @State private var selection: Set<FileID> = []
+    @State private var confirmBulkDelete = false
+    @State private var showRecentlyDeleted = false
 
     var body: some View {
         NavigationStack {
@@ -26,52 +31,123 @@ struct GalleryView: View {
                         items: store.items,
                         store: store,
                         pipeline: store.thumbnails,
-                        onScroll: { store.noteInteraction() }
+                        onScroll: { store.noteInteraction() },
+                        selectionMode: selectionMode,
+                        selection: selection,
+                        onToggleSelection: { id in
+                            if selection.contains(id) {
+                                selection.remove(id)
+                            } else {
+                                selection.insert(id)
+                            }
+                        }
                     )
                     .ignoresSafeArea(edges: .bottom)
                 }
             }
-            .navigationTitle("MobileSeal")
+            .navigationTitle(
+                selectionMode
+                    ? (selection.isEmpty
+                        ? "Select Items" : "\(selection.count) Selected")
+                    : "MobileSeal"
+            )
+            .navigationBarTitleDisplayMode(selectionMode ? .inline : .automatic)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        store.lock()
-                    } label: {
-                        Label("Lock", systemImage: "lock.fill")
+                    if selectionMode {
+                        Button("Cancel") {
+                            selectionMode = false
+                            selection = []
+                        }
+                        .accessibilityIdentifier("select-cancel-button")
+                    } else {
+                        Button {
+                            store.lock()
+                        } label: {
+                            Label("Lock", systemImage: "lock.fill")
+                        }
+                        .accessibilityIdentifier("lock-button")
                     }
-                    .accessibilityIdentifier("lock-button")
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    if UITestSupport.isUITestMode {
-                        // Scripted-e2e seam (gate 2): feeds the
-                        // committed fixture batch through the fixture
-                        // provider — the real pipeline, fake picker.
-                        Button("Import Fixtures") {
-                            store.startImport(
-                                providers: UITestSupport.fixtureBatchProviders())
+                    if selectionMode {
+                        Button(role: .destructive) {
+                            confirmBulkDelete = true
+                        } label: {
+                            Label("Remove", systemImage: "trash")
                         }
-                        .accessibilityIdentifier("import-fixtures-button")
-                        // Gate 3's 500-photo fixture gallery, seeded
-                        // directly for scroll-perf measurement.
-                        Button("Seed 500") {
-                            Task { await store.coordinator.seedGallery(count: 500) }
+                        .disabled(selection.isEmpty)
+                        .accessibilityIdentifier("select-delete-button")
+                    } else {
+                        if UITestSupport.isUITestMode {
+                            // Scripted-e2e seam (gate 2): feeds the
+                            // committed fixture batch through the fixture
+                            // provider — the real pipeline, fake picker.
+                            Button("Import Fixtures") {
+                                store.startImport(
+                                    providers: UITestSupport.fixtureBatchProviders())
+                            }
+                            .accessibilityIdentifier("import-fixtures-button")
+                            // Gate 3's 500-photo fixture gallery, seeded
+                            // directly for scroll-perf measurement.
+                            Button("Seed 500") {
+                                Task { await store.coordinator.seedGallery(count: 500) }
+                            }
+                            .accessibilityIdentifier("seed-gallery-button")
                         }
-                        .accessibilityIdentifier("seed-gallery-button")
+                        Menu {
+                            Button {
+                                selectionMode = true
+                                selection = []
+                            } label: {
+                                Label("Select", systemImage: "checkmark.circle")
+                            }
+                            .disabled(store.items.isEmpty)
+                            Button {
+                                showRecentlyDeleted = true
+                            } label: {
+                                Label(
+                                    "Recently Deleted (\(store.recentlyDeleted.count))",
+                                    systemImage: "trash")
+                            }
+                            Button {
+                                showSettings = true
+                            } label: {
+                                Label("Settings", systemImage: "gearshape")
+                            }
+                        } label: {
+                            Label("More", systemImage: "ellipsis.circle")
+                        }
+                        .accessibilityIdentifier("more-menu-button")
+                        Button {
+                            showPicker = true
+                        } label: {
+                            Label("Import", systemImage: "plus")
+                        }
+                        .disabled(store.importProgress != nil)
+                        .accessibilityIdentifier("import-button")
                     }
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                    .accessibilityIdentifier("settings-button")
-                    Button {
-                        showPicker = true
-                    } label: {
-                        Label("Import", systemImage: "plus")
-                    }
-                    .disabled(store.importProgress != nil)
-                    .accessibilityIdentifier("import-button")
                 }
+            }
+            .confirmationDialog(
+                selection.count == 1
+                    ? "Remove this item?" : "Remove \(selection.count) items?",
+                isPresented: $confirmBulkDelete,
+                titleVisibility: .visible
+            ) {
+                Button(
+                    selection.count == 1 ? "Remove" : "Remove \(selection.count) Items",
+                    role: .destructive
+                ) {
+                    store.softDelete(Array(selection))
+                    selectionMode = false
+                    selection = []
+                }
+                .accessibilityIdentifier("confirm-bulk-remove")
+            } message: {
+                Text(
+                    "Removed items move to Recently Deleted for \(RecentlyDeletedStore.retentionDays) days, then are removed from the vault."
+                )
             }
             .overlay(alignment: .bottom) {
                 if let progress = store.importProgress {
@@ -133,6 +209,9 @@ struct GalleryView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(store: store)
+            }
+            .sheet(isPresented: $showRecentlyDeleted) {
+                RecentlyDeletedView(store: store)
             }
             .sheet(
                 isPresented: Binding(

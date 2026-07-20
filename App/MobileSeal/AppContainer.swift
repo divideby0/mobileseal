@@ -30,6 +30,14 @@ struct AppContainer: Sendable {
     let vaultRoot: URL
     let galleriesDir: URL
     let stagingDir: URL
+    /// DEVICE-LOCAL state (CED-13 WS B.7): the rollback high-water
+    /// marks and the soft-delete ledger. Lives OUTSIDE the vault root
+    /// and is EXCLUDED from backup — it describes THIS device's
+    /// observations (beside the Keychain identity, which is
+    /// `ThisDeviceOnly` for the same reason): it must neither roll
+    /// back with a restored vault nor follow the vault to a new
+    /// device.
+    let deviceLocalDir: URL
 
     /// Standard container in Application Support.
     static func standard() throws -> AppContainer {
@@ -45,32 +53,51 @@ struct AppContainer: Sendable {
         vaultRoot = base.appendingPathComponent("Vault", isDirectory: true)
         galleriesDir = vaultRoot.appendingPathComponent("galleries", isDirectory: true)
         stagingDir = base.appendingPathComponent("Staging", isDirectory: true)
+        deviceLocalDir = base.appendingPathComponent("DeviceLocal", isDirectory: true)
         try prepare()
     }
 
     private func prepare() throws {
         let fm = FileManager.default
-        for dir in [vaultRoot, galleriesDir, stagingDir] {
+        for dir in [vaultRoot, galleriesDir, stagingDir, deviceLocalDir] {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         Self.applyProtection(.completeUnlessOpen, to: vaultRoot)
         Self.applyProtection(.completeUnlessOpen, to: stagingDir)
+        Self.applyProtection(.completeUnlessOpen, to: deviceLocalDir)
         // Vault root participates in backup (grill Q7): assert the
         // exclusion flag is NOT set rather than setting anything.
         // Staging is transient plaintext workspace — never back it up.
+        // DeviceLocal is per-device observation state — never back it
+        // up either (CED-13 WS B.7: a backed-up high-water mark would
+        // roll back with the vault it is meant to check).
         // A failure here is a custody-contract breach and must be
         // LOUD, not swallowed (wave-001 coderabbit #3).
-        var staging = stagingDir
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        do {
-            try staging.setResourceValues(values)
-        } catch {
-            Self.log.fault(
-                "failed to exclude staging from backup: \(String(describing: error), privacy: .public)"
-            )
-            assertionFailure("staging backup exclusion failed: \(error)")
+        for dir in [stagingDir, deviceLocalDir] {
+            var target = dir
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            do {
+                try target.setResourceValues(values)
+            } catch {
+                Self.log.fault(
+                    "failed to exclude \(dir.lastPathComponent, privacy: .public) from backup: \(String(describing: error), privacy: .public)"
+                )
+                assertionFailure("backup exclusion failed for \(dir.path): \(error)")
+            }
         }
+    }
+
+    /// The rollback high-water store location (CED-13 WS B.7).
+    var rollbackStateURL: URL {
+        deviceLocalDir.appendingPathComponent("rollback-state.json")
+    }
+
+    /// The device-local soft-delete ledger for one gallery (CED-13 WS
+    /// C.2 — delete-for-myself is device-local this leg).
+    func recentlyDeletedURL(galleryID: UUID) -> URL {
+        deviceLocalDir.appendingPathComponent(
+            "recently-deleted-\(galleryID.uuidString.lowercased()).json")
     }
 
     /// Directory-level Data Protection: files created inside inherit

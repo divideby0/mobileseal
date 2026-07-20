@@ -57,6 +57,15 @@ public final class DeviceIdentity: @unchecked Sendable {
 
     /// Generates a fresh Ed25519 keypair in secure memory.
     public static func generate() throws -> DeviceIdentity {
+        try DeviceIdentity(consuming: generateSecretKey())
+    }
+
+    /// Mints a fresh 64-byte secret key in secure memory — the custody
+    /// seam for `DeviceKeyStore` implementations, which must persist
+    /// the new key at creation time. The returned buffer is the ONLY
+    /// copy; a store either persists it (through its audited
+    /// transfer point) and constructs the identity, or frees it.
+    public static func generateSecretKey() throws -> SecureBytes {
         try SodiumRuntime.ensure()
         let sk = try SecureBytes(zeroed: secretKeyBytes)
         var pk = [UInt8](repeating: 0, count: DevicePublicKey.byteCount)
@@ -67,7 +76,7 @@ public final class DeviceIdentity: @unchecked Sendable {
             sk.zeroAndFree()
             throw VaultError.secureMemoryUnavailable
         }
-        return try DeviceIdentity(consuming: sk)
+        return sk
     }
 
     /// Detached Ed25519 signature over `message`. The one place secret

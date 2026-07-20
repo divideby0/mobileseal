@@ -100,7 +100,10 @@ import VaultCore
         #expect(FileManager.default.fileExists(atPath: stranded.path))
 
         let coordinator = VaultCoordinator(
-            container: container, calibration: TestSupport.fastCalibration)
+            container: container, calibration: TestSupport.fastCalibration,
+            deviceKeyStore: TestDeviceKeyStore(
+                url: container.deviceLocalDir.appendingPathComponent("test-device-key")),
+            deviceName: "app-test-device")
         let sink = RecordingSink()
         await coordinator.attach(sink: sink)
         await coordinator.start()
