@@ -36,13 +36,16 @@ sharing, iPad, visionOS: beyond this map.
 ## Tickets
 
 - **Manifest CRDT & Device Identity** (task, L) — the triggering goal
-  (this folder): per-device Ed25519/X25519 keypairs with pluggable
-  at-rest custody; signed AddEntry/Tombstone wire format in
-  formats.md + KAT vectors; set-union merge with the §9 validity
-  rule (tombstone honored only from the entry's author or an
-  owner-role device); TOFU trust list; inventory-v0 → signed-entry
-  migration (version-detected); rollback detection; app adopts the
-  new manifest (grid/import unchanged from the user's view).
+  (this folder): per-device Ed25519 keypair (X25519 deferred to
+  sharing legs), Keychain custody behind pluggable DeviceKeyStore;
+  canonical gallery-bound signed formats (AddEntry preserving
+  file_id/aad_file_id, Tombstone, TrustList, HEAD) + KAT vectors;
+  set-union merge with duplicate-migration convergence; append-only
+  TOFU trust list; idempotent v0 migration; device-local rollback
+  high-water mark with a backup-restore re-baseline flow; iPhone-
+  parity delete over media aggregates with Recently Deleted.
+  Authority semantics single-user this leg (post-review scope
+  honesty; multi-party at sharing legs).
 - **Multiple Galleries** (task, M) — per-gallery DEK/password,
   switcher, per-gallery lock state. **Unblocked.**
 - **Local Peer Sync** (task, XL) — Multipeer/Bonjour hash-diff
@@ -92,6 +95,11 @@ sharing, iPad, visionOS: beyond this map.
 
 ## Not yet specified
 
+- Soft-delete ("delete for myself") multi-device merge algebra —
+  device-local this leg; designed at the sync leg.
+- Multi-party authority: trust genesis attestation, role escalation
+  resistance, revocation/removal, owner recovery, member purge
+  rights — sharing legs, with a planned format-version bump.
 - `rewrapKeyring` core API — KDF recalibration + password change
   (Ente-audit lesson).
 - Biometric unlock token API (Face ID).

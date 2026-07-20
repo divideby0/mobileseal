@@ -9,150 +9,204 @@ author: cedric
 ## Problem
 
 Every gallery's content list is still CED-10's local encrypted
-inventory v0 — a single-device artifact with no authorship, no
-deletion semantics, and no way to merge two devices' histories. The
-sync legs (Local Peer Sync, then cloud) need the durable form the
-spec designed in §9: signed, mergeable manifest entries authored by
-per-device cryptographic identities. This leg builds both halves in
-VaultCore and migrates the app onto them. Zero HITL steps — pure
-`swift test` plus simulator-testable app adoption. Verbatim intake:
-`references/intake.md`; map: `wayfinder/MAP.md` (fourth executed
-leg).
+inventory v0 — single-device, no authorship, no deletion, no merge.
+The sync legs need signed, mergeable manifest entries authored by
+per-device identities (spec §9/§5.4). This leg builds them in
+VaultCore and migrates the app. Zero HITL gates (with one stated
+custody residual). Verbatim intake: `references/intake.md`; map:
+`wayfinder/MAP.md`; blind plan review (14 blockers folded):
+`references/codex-plan-review-20260720.md`.
+
+**Scope-honesty note (review B4/B5/B12, resolving to the TOFU
+decision's own rationale):** formats are versioned and extensible,
+but AUTHORITY semantics this leg are single-user/multi-device — every
+device belongs to the vault owner; gallery-password possession IS
+authorization; roles are recorded but multi-party authority (trust
+genesis attestation, escalation resistance, owner recovery, member
+purge rights) is explicitly deferred to the sharing legs, where the
+account/membership anchor exists (spec §9's premise). A format
+version bump there is acceptable and planned for.
 
 ## Scope
 
-Sized L. Per spec §5.4/§9, standing decisions (TOFU — session-001
-Q8; epoch keyring; formats-as-contract), and CED-10's Codex-review
-deferral of rollback detection to this leg.
+Sized L.
 
 ### Workstream A — device identity
 
-1. Per-device Ed25519 (signing) + X25519 (future sealed-box) keypairs,
-   generated on first vault use; **pluggable at-rest custody** behind
-   a `DeviceKeyStore` protocol — iOS implementation per grill Q1;
-   the CLI leg later adds a portable passphrase-wrapped file variant
-   (spec §5.4's original shape). Private keys expose signing through
-   scoped custody (SecureBytes discipline), never raw key bytes.
-2. Trust-on-first-use list per gallery (`trustlist` format): a
-   device that can unlock the gallery registers its pubkeys and
-   role; the list itself is signed and versioned (spec §6's
-   `trustlist.enc`). Roles: owner / member (owner = gallery creator
-   this leg; membership machinery beyond one user is the sharing
-   legs').
+1. Per-device **Ed25519 signing keypair only** (X25519 deferred to the
+   sharing legs that consume it — review A5). Custody (review B11,
+   honest version): libsodium-generated key stored as a Keychain
+   generic-password item, `WhenUnlockedThisDeviceOnly` — device-bound
+   Keychain, NOT Secure-Enclave-resident (SE cannot host libsodium
+   Ed25519). Exactly ONE audited extraction point copies the Keychain
+   `Data` into `SecureBytes` and zeroes the intermediary; the
+   compile-fail raw-key gate applies everywhere else. Behind the
+   pluggable `DeviceKeyStore` protocol (CLI leg adds
+   passphrase-wrapped file).
+2. Trust list, single-user semantics: a signed, versioned device
+   registry (device pubkey, name, added-at, role recorded for future
+   use). Genesis: created at gallery creation/migration, signed by
+   the creating device (review Q1 — genesis attestation beyond this
+   is a sharing-leg concern, documented). New devices self-register
+   on first unlock (TOFU per session-001 Q8). Trust-list updates are
+   an append-only device-set union this leg (no removal — revocation
+   is sharing-leg; review B5's non-convergence is thereby out of
+   scope and documented).
+3. Device migration/restore behavior stated (review B12): a restored
+   vault without its Keychain key enrolls as a NEW device via TOFU;
+   old entries stay valid under the old pubkey; no recovery of the
+   old identity is needed in single-user semantics.
 
 ### Workstream B — signed manifest (supersedes inventory v0)
 
-1. Wire formats in `docs/formats.md` + KAT vectors (CED-10
-   discipline): `AddEntry {content_hash, chunk_list + per-chunk
-addresses, chunk_size, unpadded_length, encrypted_metadata,
-author_device_pubkey, epoch, signature}` and `Tombstone
-{target_entry_hash, author_device_pubkey, signature}` — signature
-   over a canonical byte encoding (defined endianness/lengths, no
-   JSON ambiguity).
-2. **Validity rule** (spec §9, client-side): a tombstone is honored
-   only if its author matches the target entry's author OR an
-   owner-role device in the trust list; invalid tombstones are
-   retained but inert (they may become valid if the trust list
-   later reveals authority), surfaced in deep-verify reporting.
-3. **Set-union merge**: manifests merge as entry-set union with
-   tombstone application; no clocks — display order stays
-   EXIF/date-taken (already in encrypted metadata). Merge is a pure
-   function with a `swift test` property suite (commutativity,
-   associativity, idempotence, tombstone convergence).
-4. **Migration**: version detection on open; inventory-v0 entries
-   are re-authored as AddEntries signed by THIS device (honest:
-   provenance begins at migration; documented in formats.md),
-   single WAL-atomic commit, v0 object retained until the commit
-   point then superseded. KAT fixture gains a migrated-vault case.
-5. **Rollback detection** (CED-10 Codex Q6 disposition lands here):
-   signed HEAD descriptor carrying a per-device monotonic counter;
-   a HEAD older than the device's own recorded high-water mark
-   fails loud (`rolledBackManifest`) instead of silently serving an
-   old view. Cross-device rollback beyond that is documented as a
-   sync-leg concern (needs peer attestation).
+1. **Canonical signed encoding** (reviews B1/A1/A2): every signed
+   object (AddEntry, Tombstone, TrustList, HEAD descriptor) is a
+   canonical byte encoding — fixed field order, declared bounds,
+   duplicate/alternate-encoding rejection — whose signature covers a
+   domain separator (object kind), format version, **gallery UUID**,
+   epoch, and every semantic field. Signatures are computed over the
+   canonical plaintext; objects are then sealed with the existing
+   AEAD discipline (nonce/AAD documented); verification order
+   (decrypt → parse → verify signature) is normative.
+2. **AddEntry preserves the storage contract** (review B2): carries
+   `file_id`, `aad_file_id`, dedup hash, chunk list + addresses,
+   chunk size, unpadded length, encrypted metadata, author pubkey,
+   epoch — a superset of inventory-v0's entry, so dedup-shared
+   chunks, thumbnail/Live-Photo links, and readers keep working.
+   **Entry identity = `file_id`** (review Q2), with a normative
+   equivalence rule for migration duplicates (B.4).
+3. **Tombstone targeting** (review B3): targets `file_id` (the
+   durable identity), plus the gallery-bound canonical digest of the
+   targeted AddEntry when known; tombstone-before-add is held inert
+   until its target appears; malformed targets are inert and
+   reported.
+4. **Merge**: entry-set union keyed by identity; tombstone
+   application under the validity rule (author-or-owner; in
+   single-user semantics every trusted device passes — the rule's
+   full force arrives with sharing). **Migration equivalence rule**
+   (review B8): entries flagged `migrated_from_v0` with equal
+   (`file_id`, content hash) are one logical entry regardless of
+   signer — two devices independently migrating the same backed-up
+   v0 vault converge. Property suite: commutativity, associativity,
+   idempotence, tombstone convergence, duplicate-migration
+   convergence (two-peer fixture histories — review B14).
+5. **On-disk graph defined** (review B7): a manifest object is one
+   COMPLETE encrypted operation-set snapshot (entries + tombstones +
+   trust list reference), content-addressed like inventory v0; HEAD
+   names exactly one; recovery keeps the
+   highest-valid-local-generation rule. The **local generation
+   counter survives as a LOCAL commit revision** (review Q5) feeding
+   `snapshotStream`/readers — persisted, not part of the CRDT, not
+   synced; documented as such in formats.md.
+6. **Migration** (reviews B9/B8): idempotent state machine with
+   defined order — device key ensured in Keychain → trust-list
+   genesis staged → manifest staged → single WAL commit (manifest +
+   HEAD) → high-water mark initialized; crash injection at every
+   step; re-running any prefix is a no-op. v0 object superseded only
+   at the commit point.
+7. **Rollback detection, honestly scoped** (review B10/Q4): signed
+   HEAD descriptor with per-device monotonic counter; the high-water
+   mark lives DEVICE-LOCAL (outside the vault, beside the Keychain
+   identity) so it neither rolls back with a restored vault nor
+   blocks one. Detector fires only on a KNOWN signer presenting an
+   older-than-observed counter; a fire surfaces a user-visible
+   "restored from an older backup?" acceptance flow that
+   re-baselines and RECORDS the acceptance. What it does NOT detect
+   (element omission, cross-signer games) is documented; stronger
+   detection is the sync leg's (peer attestation).
 
-### Workstream C — app adoption
+### Workstream C — app adoption + delete
 
-1. The app reads/writes the signed manifest through the existing
-   coordinator paths; grid, import, dedup, and playback behavior
-   unchanged from the user's view; migration runs transparently on
-   first unlock (progress UI only if it measurably lags at
-   personal-library scale).
-2. **Two-tier delete, Signal-style semantics** (grill Q2/Q3):
-   _delete-for-myself_ = a soft, restorable per-user state (stored in
-   an encrypted per-device structure, NOT the shared manifest — it
-   must not delete for future collaborators); _delete-for-everyone_ =
-   the real CRDT Tombstone, gated by the §9 validity rule
-   (author-or-owner — exactly Signal's "delete for everyone" being
-   sender-only). This leg's single-user UI is iPhone parity: delete
-   from the pager (single) or grid multi-select (bulk) → confirmation
-   → item moves to a **Recently Deleted** section (soft state);
-   restore puts it back; purge/30-day expiry emits the hard
-   Tombstone. Copy says "removed" honestly — chunks persist until the
-   GC leg. The two-button delete UI arrives with the sharing legs;
-   the formats and validity rule land NOW.
-3. CONTEXT.md gains identity/manifest vocabulary (device identity,
-   trust list, entry authorship, tombstone, rollback high-water
-   mark).
+1. App reads/writes the signed manifest; grid/import/dedup/playback
+   unchanged; migration transparent (progress UI if a 500-item
+   fixture migration exceeds 2 s on the simulator — review A4's
+   measurable threshold).
+2. **Two-tier delete over the media AGGREGATE** (reviews B13/Q6;
+   grill Q2/Q3): delete targets the logical media item — original +
+   linked thumbnail/Live-Photo/poster entries — never a bare entry.
+   _Delete-for-myself_ = soft state, **device-local this leg**
+   (review B6/Q3 resolved by scoping: the per-user merge algebra is
+   designed at the sync leg — map fog); Recently Deleted section
+   lists soft-deleted aggregates (poster/thumbnail still renderable
+   from the soft state), restore clears it, 30-day expiry or manual
+   purge emits hard Tombstones for the whole aggregate.
+   _Delete-for-everyone_ = those Tombstones (single-user: always
+   authorized; the Signal-style two-button UI arrives with sharing).
+   iPhone-parity UI: pager single delete + grid multi-select bulk
+   delete + confirmation; copy says "removed" (space reclaimed at
+   the GC leg).
+3. CONTEXT.md gains identity/manifest/delete-tier vocabulary.
 
 ## Green gates
 
-1. `swift test` green: signature round-trip + tamper (flip any byte
-   of entry/tombstone/trustlist → typed failure); merge property
-   suite; validity-rule matrix (author-delete, owner-delete,
-   stranger-delete-inert, late-authority activation); migration
-   (v0 fixture → signed manifest, byte-identical media, WAL-atomic,
-   crash-injected); rollback detection (stale HEAD fails loud);
-   KAT vectors for all new formats decode with documented constants
-   only.
-2. App suites + `xcodebuild` simulator/generic-device builds green;
-   scripted e2e: pre-migration fixture vault opens, migrates,
-   grid/playback identical before/after, relaunch stable.
-3. `docs/formats.md` covers entry/tombstone/trustlist/HEAD formats
-   incl. canonical signing encoding; the third-party-decode
-   conformance test extends over them.
-4. No plaintext/key-material custody regressions: device private
-   keys never appear in the canary scan or as raw `Data`
-   (compile-fail fixture added for key-byte extraction).
+1. `swift test`: canonical-encoding KATs (accept exactly one
+   representation; reject duplicates/alternates/bounds violations);
+   signature suite with SEPARATE probes (review A3) — wrong gallery,
+   wrong domain, wrong version, tampered field each fail at the
+   signature layer, distinguishable from AEAD failure; merge
+   property suite incl. two-peer histories and duplicate-migration
+   convergence; tombstone matrix (author/owner/inert/late-target,
+   aggregate tombstoning); migration state machine crash-injected at
+   every step, idempotent re-run proven; rollback detector fires on
+   stale counter and re-baselines through the recorded acceptance
+   path.
+2. App suites + `xcodebuild` (simulator + generic device) green.
+   Scripted e2e (review B14): migrate pre-migration fixture → grid
+   identical → pager single delete → grid multi-select bulk delete →
+   Recently Deleted shows aggregates → restore one → purge one →
+   relaunch → states durable; playback of a restored item works.
+3. `docs/formats.md` covers all new formats incl. canonical signing
+   encoding + verification order; conformance test decodes the KAT
+   fixture (now incl. a migrated vault and a tombstoned aggregate)
+   with documented constants only.
+4. Key custody: the single audited Keychain extraction point;
+   compile-fail fixture for raw key bytes elsewhere; **stated
+   residual** (review A6): simulator asserts Keychain attributes and
+   API behavior — device-bound/protection-class enforcement is
+   hardware behavior, listed on the map's HITL validation checklist,
+   not counted green here.
 5. Blind multi-tool review wave (all four reviewers) completed and
    reconciled.
 
 ## References
 
-- `references/intake.md`; `wayfinder/MAP.md`.
-- Full v0.1 spec §5.4 (device identity), §9 (manifest/CRDT model),
-  §6 (trustlist.enc layout):
-  `goals/CED-10-private-photo-vault/references/intake.md` (main).
-- `docs/formats.md` + `Tests/VaultCoreTests/Fixtures/kat-vault/` —
-  the contract this leg extends.
-- `goals/CED-10-private-photo-vault/results/RESULT.md`
-  (`aad_file_id` semantics — entry re-authoring must preserve
-  dedup-shared chunk AAD context) and
-  `goals/CED-12-streaming-media-playback/results/RESULT.md`
-  (StreamingReader/provider paths the new manifest must keep
-  feeding).
-- `research/_default/e2ee-photo-vault-market-landscape.md` —
-  append-only ownership + signed logs as the differentiator vs
-  Proton's editor model.
+- `references/intake.md`; `wayfinder/MAP.md`;
+  `references/codex-plan-review-20260720.md` (dispositions inline by
+  finding number).
+- Ground truth to read first: `Sources/VaultCore/Inventory.swift`,
+  `Wire.swift`, `FormatConstants.swift`, `Gallery.swift`
+  (generation/snapshotStream), `KeyCustodian.swift`,
+  `SecureBytes.swift`; `App/MobileSeal/MediaIndex.swift` +
+  `MediaMetadata.swift` (the aggregate link model);
+  `docs/formats.md` (§Inventory object, §Commit protocol/Recovery).
+- Spec §5.4/§9: `goals/CED-10-private-photo-vault/references/intake.md`.
+- CED-10 RESULT.md (`aad_file_id`, crash protocol); CED-12 RESULT.md
+  (reader paths).
+- `research/_default/e2ee-photo-vault-market-landscape.md`
+  (append-only ownership differentiator).
 
-## Decisions (grilling session 001)
+## Decisions (grilling session 001 + review dispositions)
 
-Resolved in grilling session 001 (see transcript): Q1 Keychain /
-Secure-Enclave device-key custody (portable passphrase variant at
-the CLI leg); Q2+Q3 two-tier Signal-style delete with iPhone-parity
-UI and Recently Deleted (folded into Workstream C.2).
+Grill: Keychain device-key custody (SE-resident dropped as
+unrealizable — review B11); iPhone-parity delete UI; Signal-style
+two-tier semantics (soft per-user / hard author-gated tombstone).
+Review-driven scope decisions: single-user authority semantics with
+versioned formats (multi-party at sharing legs); X25519 deferred;
+soft-delete device-local this leg (sync algebra at sync leg);
+append-only trust list (revocation at sharing legs).
 
 ## Executor notes (self-sufficiency)
 
 - Review-wave diff base: `main`.
-- Zero HITL: every gate runs on macOS or the simulator.
-- Formatter runs scope to THIS goal folder only — never `goals/**`
-  (locked records are byte-stable; see map note).
-- VaultCore stays UIKit-free; `DeviceKeyStore`'s iOS implementation
-  lives in the app layer if it touches Keychain APIs — check
-  Security-framework availability on Linux before placing code.
-- Read CED-10 RESULT.md's `aad_file_id` note before migration work:
-  chunks sealed under the ORIGINAL importer's file ID must keep
-  their AAD context through re-authoring.
+- Formatter runs scope to THIS goal folder only — never `goals/**`.
+- VaultCore stays UIKit-free; the Keychain-backed `DeviceKeyStore`
+  implementation lives in the app layer; core sees only the
+  protocol + SecureBytes.
+- Read CED-10's `aad_file_id` note before touching entry formats;
+  AddEntry must carry it forward verbatim.
+- High-water mark + device identity live OUTSIDE the vault root
+  (they must not ride iCloud backup with the vault — that's the
+  point); document the exact locations in formats.md's security
+  notes.
 - xcodegen regeneration after adding files; `Scripts/run-gates.sh`
   is the gate-suite shape.
