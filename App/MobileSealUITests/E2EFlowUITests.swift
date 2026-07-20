@@ -145,14 +145,15 @@ final class E2EFlowUITests: XCTestCase {
         mute.tap()
         XCTAssertEqual(mute.value as? String, "unmuted", "tap must unmute")
 
-        // Scrub to three positions; playback keeps presenting (the
-        // scrubber keeps advancing from each target).
+        // Scrub to three positions; after each, playback keeps
+        // presenting (the scrubber keeps moving). Landing precision
+        // is not asserted — the clip is 3 s and LOOPING, so the
+        // periodic observer legitimately rewrites the value within a
+        // frame of the drag; frame presentation per seek position is
+        // pinned by PlaybackCustodyTests.framesPresentAtStartAndAfterScrubs.
         for target in [0.8, 0.2, 0.5] {
             scrubber.adjust(toNormalizedSliderPosition: target)
             let position = scrubber.normalizedSliderPosition
-            XCTAssertTrue(
-                abs(position - target) < 0.3,
-                "scrub to \(target) landed at \(position)")
             XCTAssertTrue(
                 waitUntil(timeout: 15) {
                     scrubber.normalizedSliderPosition != position

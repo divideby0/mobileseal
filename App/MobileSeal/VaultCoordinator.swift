@@ -167,8 +167,14 @@ actor VaultCoordinator {
     // MARK: - Startup
 
     /// Launch: wipe staging (crash-path custody — gate 4), then route
-    /// to setup or unlock.
+    /// to setup or unlock. IDEMPOTENT — only the `.starting` phase may
+    /// route: SwiftUI re-runs the root `.task` when a full-screen
+    /// UIKit presentation detaches and re-attaches the hosting view,
+    /// and a second `start()` mid-session must not re-route an
+    /// unlocked vault to `.locked` (CED-12 pager gate found this
+    /// live).
     func start() async {
+        guard phase == .starting else { return }
         container.wipeStaging()
         if let dir = container.existingGalleryDirectory() {
             galleryDirectory = dir

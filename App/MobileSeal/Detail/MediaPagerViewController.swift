@@ -379,6 +379,13 @@ final class ZoomMorphAnimator: NSObject, UIViewControllerAnimatedTransitioning {
                 context.completeTransition(false)
                 return
             }
+            // A .fullScreen presentation REMOVED the presenter's view;
+            // a custom dismissal animator must reinstall it or the
+            // window is left empty after the transition.
+            if let toView = context.view(forKey: .to) {
+                toView.frame = container.bounds
+                container.insertSubview(toView, belowSubview: fromView)
+            }
             let duration = transitionDuration(using: context)
             UIView.animate(
                 withDuration: duration,

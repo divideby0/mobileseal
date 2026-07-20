@@ -71,7 +71,14 @@ final class VaultStore: VaultUISink {
         self.lockPreferences = LockPreferences.load(from: defaults)
     }
 
+    /// One-shot: the root view's `.task` re-runs when a full-screen
+    /// UIKit presentation detaches the hosting view, and a second
+    /// bootstrap would double-register the playback lock participant.
+    private var bootstrapped = false
+
     func bootstrap() async {
+        guard !bootstrapped else { return }
+        bootstrapped = true
         await coordinator.attach(sink: self)
         await coordinator.attachPlayback(
             cache: playback.cache, participant: playback)
