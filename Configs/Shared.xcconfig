@@ -1,0 +1,5 @@
+// Shared build settings for all configurations. Personal values
+// (DEVELOPMENT_TEAM for device signing) belong in Local.xcconfig,
+// which is gitignored and optional — simulator and generic-device
+// (unsigned) builds work without it.
+#include? "Local.xcconfig"

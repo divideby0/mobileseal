@@ -2,3 +2,7 @@
 node_modules/
 .build/
 .swiftpm/
+xcuserdata/
+Configs/Local.xcconfig
+DerivedData/
+*.xcresult

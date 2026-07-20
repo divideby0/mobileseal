@@ -1,0 +1,72 @@
+  GalleryView with no ShieldView overlay for at least one render pass —
+  defeating the exact guarantee the shield exists for (Codex A2: never show
+  vault content without the shield unless actually safe to).
+
+
+
+
+
+  🛡️ Suggested fix — keep the shield up until the lock actually lands
+
+       func sceneBecameActive() {
+           NSLog("MOBILESEAL-SCENE active")
+  -        if let away = backgroundedAt,
+  -            lockPreferences.backgroundPolicy == .grace,
+  -            Date().timeIntervalSince(away) > LockPreferences.gracePeriod
+  -        {
+  -            lock()
+  -        }
+  -        backgroundedAt = nil
+  -        shielded = false
+  -        noteInteraction()
+  +        let awayTooLong = backgroundedAt.map {
+  +            lockPreferences.backgroundPolicy == .grace
+  +                && Date().timeIntervalSince($0) > LockPreferences.gracePeriod
+  +        } ?? false
+  +        backgroundedAt = nil
+  +        if awayTooLong {
+  +            lock()  // shielded stays true until phaseChanged(.locked) clears it
+  +        } else {
+  +            shielded = false
+  +        }
+  +        noteInteraction()
+       }
+
+  And clear the shield once locking actually completes, e.g. in
+  phaseChanged:
+
+  func phaseChanged(_ phase: VaultPhase) {
+      self.phase = phase
+      if case .unlocked = phase { noteInteraction() }
+      if case .locked = phase { shielded = false }
+  }
+
+
+────────────────────────────────────────
+Review complete
+8 findings ✔
+
+Major    6
+Minor    2
+
+165 files reviewed:
+- .coderabbit.yaml
+- .gitignore
+- App/Fixtures/corrupt-zz.jpg
+- App/Fixtures/fixture-0000.jpg
+- App/Fixtures/fixture-0001.heic
+- App/Fixtures/fixture-0002.jpg
+- App/Fixtures/fixture-0003.heic
+- App/Fixtures/fixture-0004.jpg
+- App/Fixtures/fixture-0005.heic
+- App/Fixtures/fixture-0006.jpg
+... and 155 more files
+────────────────────────────────────────
+
+Print all AI prompts: coderabbit review --show-prompts
+
+REVIEW COMPLETE
+=== CODERABBIT REVIEWER DONE ===
+
+ openclaw  .../CED-11-ios-vault-app-shell   CED-11-ios-vault-app-shell ?  ⎈ gke-spanland-prod   18:53 
+❯

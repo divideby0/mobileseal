@@ -26,14 +26,14 @@ second-`openGallery()` door but left the second-`unlock()` door open.
 
 ## Findings
 
-| #   | Severity | Location                                | Finding                                                                                     |
-| --- | -------- | --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| #   | Severity | Location                                                              | Finding                                                                                                                                                         |
+| --- | -------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | blocker  | `Sources/VaultCore/KeyCustodian.swift:111` / `UnlockSession.swift:37` | Single-writer claim is per-session, not per-vault: a second `unlock()` produces a second writable `Gallery` that silently loses a committed import (reproduced) |
-| 2   | major    | `Tests/VaultCoreTests/ReviewRegressionTests.swift:171` | The wave-002 #6 regression lock does not exercise the path it locks; `VaultError.sourceChangedDuringImport` has zero test coverage |
-| 3   | minor    | `Sources/VaultCore/Gallery.swift:194,263` | Dedup-path commit failure leaks a WAL staging directory — the self-created `CommitTx` is never aborted |
-| 4   | minor    | `Sources/VaultCore/Gallery.swift:186`   | Dedup reuses an existing entry's chunk addresses without checking those chunk objects still exist, so a re-import can "succeed" into an unreadable entry |
-| 5   | nit      | `Package.swift:25`                      | Declared dependency on the `Sodium` product is unused — only `Clibsodium` is imported                        |
-| 6   | nit      | `Sources/VaultCore/Store.swift:45,108`  | `Darwin.read` / `F_FULLFSYNC` hardcode Apple platforms in the package the ADR designates as the portable core |
+| 2   | major    | `Tests/VaultCoreTests/ReviewRegressionTests.swift:171`                | The wave-002 #6 regression lock does not exercise the path it locks; `VaultError.sourceChangedDuringImport` has zero test coverage                              |
+| 3   | minor    | `Sources/VaultCore/Gallery.swift:194,263`                             | Dedup-path commit failure leaks a WAL staging directory — the self-created `CommitTx` is never aborted                                                          |
+| 4   | minor    | `Sources/VaultCore/Gallery.swift:186`                                 | Dedup reuses an existing entry's chunk addresses without checking those chunk objects still exist, so a re-import can "succeed" into an unreadable entry        |
+| 5   | nit      | `Package.swift:25`                                                    | Declared dependency on the `Sodium` product is unused — only `Clibsodium` is imported                                                                           |
+| 6   | nit      | `Sources/VaultCore/Store.swift:45,108`                                | `Darwin.read` / `F_FULLFSYNC` hardcode Apple platforms in the package the ADR designates as the portable core                                                   |
 
 ---
 
@@ -51,7 +51,7 @@ second-`openGallery()` door but left the second-`unlock()` door open.
 `SealedVault` is a public `Sendable` struct and `unlock(password:)` is
 public with no documented "one session at a time" constraint. The
 `docs/formats.md` §Security notes "single-process assumption" (line 309)
-covers multi-*process* access, not two sessions inside one process.
+covers multi-_process_ access, not two sessions inside one process.
 
 I reproduced the loss with a scratch test against the current tree (since
 removed; working tree left clean):
@@ -174,7 +174,7 @@ reasonable test, just not this one.
 
 **Evidence.** `Sources/VaultCore/Gallery.swift:194` — the dedup early
 return calls `try commitAppending(entry, stagedIn: nil)`, and this call
-sits *before* the `do { … } catch { tx.abort() }` block that begins at
+sits _before_ the `do { … } catch { tx.abort() }` block that begins at
 line 209. Inside `commitAppending`, line 263 creates its own transaction
 when none was passed:
 
@@ -240,7 +240,7 @@ import — filesystem corruption, a partial restore from backup, an
 interrupted sync, or the GC leg that `docs/formats.md:258` explicitly
 plans — the original entry is already broken, and re-importing the same
 media is the most natural user response ("let me just add it again"). Today
-that re-import reports success and produces a *second* entry that is
+that re-import reports success and produces a _second_ entry that is
 equally unreadable, while the source file may then be deleted by the user
 in the belief it is safely vaulted. The failure only surfaces later, at
 read time, as `missingChunk`. Re-importing the actual bytes is the one
@@ -269,7 +269,7 @@ target's dependencies. No file under `Sources/` or `Tests/` contains
 directly (`CryptoCore.swift:1`, `SecureBytes.swift:1`, etc.), which is the
 right choice given the raw-pointer custody this design needs.
 
-**Why it matters.** Minor, but the goal names Swift-Sodium as the *sole*
+**Why it matters.** Minor, but the goal names Swift-Sodium as the _sole_
 crypto dependency and this package is the security-critical core: linking
 the Swift wrapper layer that nothing calls adds compile time and audit
 surface for zero benefit, and it slightly obscures the real (deliberate,
@@ -290,7 +290,7 @@ qualifier. `Package.swift` declares only `.macOS`/`.iOS` platforms.
 
 **Why it matters.** This is squarely within the goal's stated scope
 ("macOS toolchain only for this goal"), and the ADR's portability claim is
-correctly about the *formats* being the cross-platform contract, not the
+correctly about the _formats_ being the cross-platform contract, not the
 code — so this is not a defect against the spec. Flagging it only because
 `docs/formats.md:5` and `ADR 0001` both name a macOS/Linux CLI peer as the
 consumer, and the `Darwin.` qualifier in particular is a hard compile
