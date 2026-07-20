@@ -35,12 +35,12 @@ sharing, iPad, visionOS: beyond this map.
 - **Streaming Media Playback** (task, L) — the triggering goal (this
   folder): pluggable rewindable `ChunkSource` + resident-plaintext
   budget in VaultCore; AVAssetResourceLoaderDelegate streaming
-  decrypt (no plaintext temp files); video import poster frames;
-  swipe-to-advance pager with neighbor prefetch and zoom/dismiss
-  transitions; Live Photo motion; streaming still decode (removes the
-  detail viewer's whole-file materialization); scrub-latency
-  benchmark deciding the per-file video chunk profile (4 MiB vs
-  1–2 MiB — research on file).
+  decrypt (no plaintext temp files); video import (picker role,
+  poster frames, metadata schema evolution); autoplay pager with
+  neighbor warming; Live Photo motion; scrub-latency benchmark
+  deciding the per-file video chunk profile. Post-review trim:
+  streaming still decode and full remote-source availability
+  semantics moved to fog.
 - **Multiple Galleries** (task, M) — per-gallery DEK/password,
   switcher, per-gallery lock state (writer registry already keys by
   vault path). **Unblocked.**
@@ -111,6 +111,12 @@ sharing, iPad, visionOS: beyond this map.
 - Pager polish candidates: full-Photos interactive transitions
   (zoom carryover, pinch-to-grid), scrub-preview filmstrip —
   promote only if daily use itches.
+- Streaming still decode (detail viewer incremental HEIC/RAW decode
+  under the 256 MiB ceiling) — trimmed from the playback leg per
+  its Codex review A1.
+- Remote-source availability semantics (retry/suspend/cancel for a
+  fetching SealedChunkProvider) — designed at the sync leg that
+  builds a real remote source.
 - Smaller CED-11 residuals (fixtures out of Release bundle, provider
   size estimates, persisted metadata index, resume-prompt across
   locks) — indexed in its RESULT.md Follow-ups; promote to tickets
