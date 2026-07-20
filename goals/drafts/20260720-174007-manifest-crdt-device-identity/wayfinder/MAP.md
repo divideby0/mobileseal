@@ -83,6 +83,13 @@ sharing, iPad, visionOS: beyond this map.
   (ADR 0001); ciphertext-hash + manifest dedup; epoch keyring; TOFU;
   tail padding; random nonces.
 
+- [Manifest-CRDT grilling, session 001](../grilling/session-001-20260720-174500.md)
+  — Keychain/Secure-Enclave device-key custody (portable variant at
+  CLI leg); two-tier Signal-style delete: delete-for-myself = soft
+  per-user restorable state, delete-for-everyone = CRDT tombstone
+  under the author-or-owner rule; single-user UI = iPhone-parity
+  Recently Deleted; two-button UI at the sharing legs.
+
 ## Not yet specified
 
 - `rewrapKeyring` core API — KDF recalibration + password change

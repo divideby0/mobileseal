@@ -78,8 +78,19 @@ author_device_pubkey, epoch, signature}` and `Tombstone
    unchanged from the user's view; migration runs transparently on
    first unlock (progress UI only if it measurably lags at
    personal-library scale).
-2. Tombstone creation UI per grill Q2 (delete button this leg or
-   core-only).
+2. **Two-tier delete, Signal-style semantics** (grill Q2/Q3):
+   _delete-for-myself_ = a soft, restorable per-user state (stored in
+   an encrypted per-device structure, NOT the shared manifest — it
+   must not delete for future collaborators); _delete-for-everyone_ =
+   the real CRDT Tombstone, gated by the §9 validity rule
+   (author-or-owner — exactly Signal's "delete for everyone" being
+   sender-only). This leg's single-user UI is iPhone parity: delete
+   from the pager (single) or grid multi-select (bulk) → confirmation
+   → item moves to a **Recently Deleted** section (soft state);
+   restore puts it back; purge/30-day expiry emits the hard
+   Tombstone. Copy says "removed" honestly — chunks persist until the
+   GC leg. The two-button delete UI arrives with the sharing legs;
+   the formats and validity rule land NOW.
 3. CONTEXT.md gains identity/manifest vocabulary (device identity,
    trust list, entry authorship, tombstone, rollback high-water
    mark).
@@ -124,15 +135,12 @@ author_device_pubkey, epoch, signature}` and `Tombstone
   append-only ownership + signed logs as the differentiator vs
   Proton's editor model.
 
-## Open questions (for grilling)
+## Decisions (grilling session 001)
 
-1. iOS device-key custody: Keychain/Secure-Enclave-protected
-   (no new passphrase UX; keys device-bound; spec's
-   low-stakes-by-design rationale) vs passphrase-wrapped file (spec
-   §5.4 literal; portable but demands a second passphrase UX).
-2. Delete UI this leg: a delete button creating tombstones (first
-   real use of the machinery, simulator-testable) or core-only
-   (UI waits for a later leg)?
+Resolved in grilling session 001 (see transcript): Q1 Keychain /
+Secure-Enclave device-key custody (portable passphrase variant at
+the CLI leg); Q2+Q3 two-tier Signal-style delete with iPhone-parity
+UI and Recently Deleted (folded into Workstream C.2).
 
 ## Executor notes (self-sufficiency)
 
