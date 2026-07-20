@@ -111,12 +111,6 @@ public enum VaultError: Error, Equatable, Hashable, Sendable {
     case signatureInvalid(SignedObjectKind)
     /// A signed object's author is not in the gallery's trust list.
     case untrustedSigner(SignedObjectKind)
-    /// A trust-list update dropped devices (the v1 trust list is an
-    /// append-only device-set union; removal is a sharing-leg concern).
-    case trustListRegression
-    /// A device key store was required but none was supplied (v1
-    /// vaults cannot be unlocked without a device identity).
-    case deviceIdentityRequired
     /// The device key store produced an unusable identity.
     case deviceIdentityInvalid(reason: String)
     /// Rollback detector (GOAL WS B.7): a KNOWN signer presented a HEAD

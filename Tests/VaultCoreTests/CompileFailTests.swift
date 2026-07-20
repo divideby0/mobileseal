@@ -35,6 +35,10 @@ import Testing
             name: "session-task-capture",
             expectedDiagnostic: "cannot be consumed when captured by an escaping closure"),
         Fixture(name: "session-task-capture-control", expectedDiagnostic: nil),
+        Fixture(
+            name: "devicekey-raw-escape",
+            expectedDiagnostic: "'secretKey' is inaccessible due to 'private' protection level"),
+        Fixture(name: "devicekey-raw-escape-control", expectedDiagnostic: nil),
     ]
 
     @Test(arguments: fixtures)

@@ -461,4 +461,10 @@ public actor Gallery {
     func setCommitFailpoint(_ fp: CommitFailpoint) {
         failpoint = fp
     }
+
+    /// The full signed manifest (test surface: merge/property suites
+    /// inspect the CRDT state behind the effective view).
+    func debugManifest() -> ManifestObject {
+        manifest
+    }
 }
