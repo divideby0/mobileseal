@@ -148,6 +148,25 @@ struct ImportEngine: Sendable {
 
         // Per-item staging subdir so cleanup is one directory remove
         // regardless of how many parts the provider produced.
+        // Pre-stage low-disk estimate (wave-001 codex #7): once any
+        // item has been observed, refuse to even COPY the next one
+        // when free space is below 2× the projected remaining bytes —
+        // the copy itself must not be what exhausts storage. The
+        // first item has no estimate; its exact post-stage check
+        // below still governs.
+        if !observedItemBytes.isEmpty {
+            let mean = observedItemBytes.reduce(0, +) / Int64(observedItemBytes.count)
+            let projected = mean * Int64(remaining)
+            if let available = Self.availableCapacity(at: container.stagingDir),
+                available < projected * Self.lowDiskFactor
+            {
+                return fail(
+                    .lowDiskSpace(
+                        requiredBytes: projected * Self.lowDiskFactor,
+                        availableBytes: available))
+            }
+        }
+
         let itemDir = batchDir.appendingPathComponent("item-\(index)", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: itemDir, withIntermediateDirectories: true)

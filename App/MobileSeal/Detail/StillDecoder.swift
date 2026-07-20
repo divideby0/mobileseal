@@ -16,7 +16,10 @@ enum StillDecoder {
     static func decode(data: Data) -> UIImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            // IfAbsent (not Always): reuse an embedded preview when
+            // the container has one — that IS the ProRAW/DNG path the
+            // goal names (wave-001 coderabbit #5's distinction).
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceShouldCacheImmediately: true,

@@ -109,6 +109,7 @@ import VaultCore
             }
         }
         store.lockPreferences.backgroundPolicy = .grace
+        store.lockPreferences.gracePeriod = 0.1
 
         // Short absence: no lock.
         store.sceneEnteredBackground()
@@ -116,6 +117,18 @@ import VaultCore
         store.sceneBecameActive()
         #expect(store.phase == .unlocked(importing: false))
         #expect(!store.shielded)
+
+        // Absence past the window: locks on return, and the shield
+        // STAYS UP until the phase actually reaches .locked (wave-001
+        // cc #5 / codex #1 / coderabbit: the old path flashed the
+        // unlocked grid during the async lock).
+        store.sceneEnteredBackground()
+        try? await Task.sleep(for: .milliseconds(250))
+        store.sceneBecameActive()
+        #expect(store.shielded, "shield must not drop while the grace lock is pending")
+        #expect(await TestSupport.waitUntil { store.phase == .locked })
+        #expect(await TestSupport.waitUntil { !store.shielded })
+        #expect(await store.thumbnails.debugCacheIsEmpty)
     }
 
     @Test func offPolicyNeverAutoLocks() async throws {
@@ -146,6 +159,32 @@ import VaultCore
         store.startIdleWatch(pollInterval: .milliseconds(50))
         #expect(await TestSupport.waitUntil(timeout: .seconds(5)) { store.phase == .locked })
         #expect(await store.thumbnails.debugCacheIsEmpty)
+    }
+
+    /// Wave-001 regression (cc #1 / coderabbit): a decode in flight
+    /// across purge() must never repopulate the emptied cache when it
+    /// resumes — the actor's await is a reentrancy point.
+    @Test func purgeDuringInflightDecodesLeavesCacheEmpty() async throws {
+        let (store, container) = try await makeWarmStore()
+        defer {
+            Task {
+                await store.coordinator.teardown()
+                TestSupport.removeContainer(container)
+            }
+        }
+        let items = store.items
+        // Race purge against a burst of concurrent decodes, many times.
+        for _ in 0..<20 {
+            await store.thumbnails.purge()
+            let reader = await store.coordinator.debugGallery()?.makeReader()
+            await store.thumbnails.setReader(reader)
+            let requests = (0..<8).map { _ in
+                Task { await store.thumbnails.image(for: items[0]) }
+            }
+            await store.thumbnails.purge()
+            for request in requests { _ = await request.value }
+            #expect(await store.thumbnails.debugCacheIsEmpty)
+        }
     }
 
     @Test func explicitLockControlWorks() async throws {

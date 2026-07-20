@@ -6,8 +6,11 @@ import UniformTypeIdentifiers
 /// the ONLY derived artifact — originals stay byte-exact. Decoding is
 /// memory-bounded via ImageIO downsampling
 /// (`kCGImageSourceCreateThumbnailAtIndex` never inflates the full
-/// bitmap for common formats); ProRAW/DNG resolves through its
-/// embedded preview the same way.
+/// bitmap for common formats). `FromImageAlways` deliberately
+/// regenerates rather than reusing embedded previews here — stored
+/// thumbnails should be uniform app-generated artifacts; the DETAIL
+/// viewer (`StillDecoder`) is where embedded ProRAW previews are
+/// reused (wave-001 coderabbit #5).
 enum Thumbnailer {
     /// Long-edge pixel size for stored thumbnails: 512 px covers 3-4
     /// grid columns at 3x scale with headroom for the transition zoom.

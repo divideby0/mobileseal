@@ -41,6 +41,10 @@ enum KDFCalibrator {
         var fallbackReason: String?
         var thermalState: String
         var availableMemoryMiB: Int64?
+        /// Peak process physical footprint sampled across the timed
+        /// unlocks (GOAL WS D.4 requires peak memory recorded; nil on
+        /// injected-measurement test runs).
+        var peakFootprintMiB: Int64? = nil
         var releaseBuild: Bool
     }
 
@@ -54,10 +58,15 @@ enum KDFCalibrator {
     /// timings without multi-second KDF runs.
     static func calibrate(
         scratchDir: URL,
-        measure: (KDFParams) throws -> TimeInterval = realMedianOf5,
+        measure: ((KDFParams, URL) throws -> TimeInterval)? = nil,
         headroom: Int64? = availableMemoryBytes(),
         thermal: ProcessInfo.ThermalState = ProcessInfo.processInfo.thermalState
     ) -> (KDFParams, Record) {
+        // Real runs sample peak footprint across the measurements;
+        // injected test measurements skip the sampler.
+        let sampler = measure == nil ? FootprintSampler() : nil
+        let measure = measure ?? Self.realMedianOf5
+        defer { sampler?.stop() }
         var record = Record(
             date: Date(),
             chosenOpslimit: moderate.opslimit,
@@ -71,18 +80,22 @@ enum KDFCalibrator {
             record.fallbackReason = reason
             record.chosenOpslimit = moderate.opslimit
             record.chosenMemlimitMiB = moderate.memlimit >> 20
+            record.peakFootprintMiB = sampler?.peakBytes.map { $0 >> 20 }
             return (moderate, record)
         }
 
-        // Gate: thermal.
+        // Gate: thermal — fires before any measurement, so no raise
+        // is attempted (wave-001 coderabbit: the old copy blamed
+        // "headroom" for a thermal decision).
         guard thermal == .nominal || thermal == .fair else {
-            return fallback("thermal state \(thermalStateName(thermal)) — headroom absent")
+            return fallback(
+                "thermal state \(thermalStateName(thermal)) — raise not attempted")
         }
 
         // Measure MODERATE.
         let baseMedian: TimeInterval
         do {
-            baseMedian = try measure(moderate)
+            baseMedian = try measure(moderate, scratchDir)
             record.medians[label(moderate)] = baseMedian
         } catch {
             return fallback("measurement failed: \(error)")
@@ -107,12 +120,13 @@ enum KDFCalibrator {
                 baseMedian > envelope.upperBound
                 ? "MODERATE median \(String(format: "%.3f", baseMedian))s already above envelope — floor stands"
                 : nil
+            record.peakFootprintMiB = sampler?.peakBytes.map { $0 >> 20 }
             return (moderate, record)
         }
 
         // Verify the pick with its own median-of-5.
         do {
-            let verified = try measure(pick)
+            let verified = try measure(pick, scratchDir)
             record.medians[label(pick)] = verified
             guard verified <= envelope.upperBound else {
                 return fallback(
@@ -121,17 +135,20 @@ enum KDFCalibrator {
             }
             record.chosenOpslimit = pick.opslimit
             record.chosenMemlimitMiB = pick.memlimit >> 20
+            record.peakFootprintMiB = sampler?.peakBytes.map { $0 >> 20 }
             return (pick, record)
         } catch {
             return fallback("verification failed: \(error)")
         }
     }
 
-    /// Real measurement: throwaway vault, one create, five timed
-    /// unlocks, median.
-    static func realMedianOf5(_ params: KDFParams) throws -> TimeInterval {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("kdf-cal-\(UUID().uuidString)", isDirectory: true)
+    /// Real measurement: throwaway vault INSIDE the caller's scratch
+    /// directory (the Data-Protection-classed container — wave-001
+    /// claude-code #6 caught the seam being ignored), one create,
+    /// five timed unlocks, median.
+    static func realMedianOf5(_ params: KDFParams, scratchDir: URL) throws -> TimeInterval {
+        let dir = scratchDir.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
         // Throwaway scratch passphrase — the vault is deleted before
@@ -156,6 +173,61 @@ enum KDFCalibrator {
                     + Double(elapsed.components.attoseconds) / 1e18)
         }
         return timings.sorted()[timings.count / 2]
+    }
+
+    // MARK: - peak-footprint sampling (GOAL WS D.4: peak memory
+    // recorded alongside the calibration medians)
+
+    /// Samples the process physical footprint (`task_vm_info.
+    /// phys_footprint`) every 25 ms on a utility thread and keeps the
+    /// maximum observed across the calibration run.
+    final class FootprintSampler: @unchecked Sendable {
+        private let lock = NSLock()
+        private var running = true
+        private var peak: Int64 = 0
+
+        init() {
+            let thread = Thread { [weak self] in
+                while true {
+                    guard let self else { return }
+                    self.lock.lock()
+                    let live = self.running
+                    if let sample = Self.currentFootprint() {
+                        self.peak = max(self.peak, sample)
+                    }
+                    self.lock.unlock()
+                    if !live { return }
+                    Thread.sleep(forTimeInterval: 0.025)
+                }
+            }
+            thread.qualityOfService = .utility
+            thread.start()
+        }
+
+        var peakBytes: Int64? {
+            lock.lock()
+            defer { lock.unlock() }
+            return peak > 0 ? peak : nil
+        }
+
+        func stop() {
+            lock.lock()
+            running = false
+            lock.unlock()
+        }
+
+        static func currentFootprint() -> Int64? {
+            var info = task_vm_info_data_t()
+            var count = mach_msg_type_number_t(
+                MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+            let result = withUnsafeMutablePointer(to: &info) { ptr in
+                ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { raw in
+                    task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), raw, &count)
+                }
+            }
+            guard result == KERN_SUCCESS else { return nil }
+            return Int64(info.phys_footprint)
+        }
     }
 
     // MARK: - environment probes

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import VaultCore
 
 /// The app-container contract (GOAL WS A.3, Codex B8).
@@ -23,6 +24,9 @@ import VaultCore
 ///    so a crash mid-import cannot strand plaintext (gate 4's crash
 ///    path). Staging is excluded from backup.
 struct AppContainer: Sendable {
+    private static let log = Logger(
+        subsystem: "com.gmail.cedric.hurst.mobileseal", category: "container")
+
     let vaultRoot: URL
     let galleriesDir: URL
     let stagingDir: URL
@@ -54,10 +58,19 @@ struct AppContainer: Sendable {
         // Vault root participates in backup (grill Q7): assert the
         // exclusion flag is NOT set rather than setting anything.
         // Staging is transient plaintext workspace — never back it up.
+        // A failure here is a custody-contract breach and must be
+        // LOUD, not swallowed (wave-001 coderabbit #3).
         var staging = stagingDir
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
-        try? staging.setResourceValues(values)
+        do {
+            try staging.setResourceValues(values)
+        } catch {
+            Self.log.fault(
+                "failed to exclude staging from backup: \(String(describing: error), privacy: .public)"
+            )
+            assertionFailure("staging backup exclusion failed: \(error)")
+        }
     }
 
     /// Directory-level Data Protection: files created inside inherit
@@ -96,7 +109,9 @@ struct AppContainer: Sendable {
     // MARK: - Staging lifecycle
 
     /// Wipes everything under Staging/. Called on every launch and at
-    /// import end — the crash-path half of the custody claim.
+    /// import end — the crash-path half of the custody claim. A
+    /// removal failure strands plaintext, so it is surfaced loudly
+    /// rather than discarded (wave-001 coderabbit #4).
     func wipeStaging() {
         let fm = FileManager.default
         guard
@@ -104,7 +119,14 @@ struct AppContainer: Sendable {
                 at: stagingDir, includingPropertiesForKeys: nil)
         else { return }
         for entry in entries {
-            try? fm.removeItem(at: entry)
+            do {
+                try fm.removeItem(at: entry)
+            } catch {
+                Self.log.fault(
+                    "failed to wipe staged plaintext at \(entry.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+                assertionFailure("staging wipe failed at \(entry.path): \(error)")
+            }
         }
     }
 

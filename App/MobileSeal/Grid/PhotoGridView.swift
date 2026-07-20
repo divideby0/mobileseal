@@ -144,7 +144,14 @@ struct PhotoGridView: UIViewRepresentable {
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             guard UITestSupport.isUITestMode, displayLink == nil else { return }
             instrumentedScrollView = scrollView
+            // Per-scroll counters: each published report describes
+            // exactly one scroll interval — the perf test sums them
+            // (wave-001 claude-code #3: cumulative counters inflated
+            // the recorded numbers).
             lastFrameTimestamp = 0
+            frameCount = 0
+            hitchCount = 0
+            maxGapMs = 0
             let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
             link.add(to: .main, forMode: .common)
             displayLink = link
@@ -152,6 +159,16 @@ struct PhotoGridView: UIViewRepresentable {
         }
 
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            finishInstrumenting(scrollView)
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate: Bool) {
+            // A drag released without velocity never decelerates — tear
+            // down here or the link runs forever (wave-001 cc #12).
+            if !willDecelerate { finishInstrumenting(scrollView) }
+        }
+
+        private func finishInstrumenting(_ scrollView: UIScrollView) {
             guard let link = displayLink else { return }
             link.invalidate()
             displayLink = nil
@@ -185,6 +202,8 @@ final class PhotoCell: UICollectionViewCell {
     private let imageView = UIImageView()
     private let badge = UIImageView()
     private var loadTask: Task<Void, Never>?
+    private var loadedID: FileID?
+    private var pipeline: ThumbnailPipeline?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -216,11 +235,19 @@ final class PhotoCell: UICollectionViewCell {
         super.prepareForReuse()
         loadTask?.cancel()
         loadTask = nil
+        // Cancellation must reach the underlying decrypt/decode, not
+        // just the waiting UI task (wave-001 codex #6).
+        if let id = loadedID, let pipeline {
+            Task { await pipeline.cancel([id]) }
+        }
+        loadedID = nil
         imageView.image = nil
         badge.isHidden = true
     }
 
     func configure(with item: MediaItem, pipeline: ThumbnailPipeline) {
+        loadedID = item.id
+        self.pipeline = pipeline
         accessibilityIdentifier = "photo-cell-\(item.id.description)"
         if item.damaged {
             badge.image = UIImage(systemName: "exclamationmark.triangle.fill")

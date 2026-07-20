@@ -10,32 +10,43 @@ import VaultCore
 @MainActor
 @Suite struct ThumbnailRecoveryTests {
     /// Imports an original WITHOUT its thumbnail commit (simulating a
-    /// crash between the two), then checks the index reports it and
-    /// regeneration heals it.
-    @Test func missingThumbnailIsReportedAndRegenerates() async throws {
-        let vault = try await UnlockedVault.create()
-        defer { Task { await vault.destroy() } }
+    /// crash between the two), then verifies the STORE's on-open
+    /// wiring heals it with no manual coordinator call — wave-001
+    /// cc #2 / codex #5 caught the previous test asserting a wiring
+    /// that did not exist.
+    @Test func missingThumbnailRegeneratesThroughStoreWiring() async throws {
+        let container = try TestSupport.makeContainer()
+        let coordinator = VaultCoordinator(
+            container: container, calibration: TestSupport.fastCalibration)
+        let defaults = UserDefaults(suiteName: "recovery-tests-\(UUID().uuidString)")!
+        let store = VaultStore(
+            coordinator: coordinator, container: container, defaults: defaults)
+        defer {
+            Task {
+                await coordinator.teardown()
+                TestSupport.removeContainer(container)
+            }
+        }
+        await store.bootstrap()
+        _ = await TestSupport.waitUntil { store.phase == .needsSetup }
+        store.createGallery(password: UnlockedVault.password)
+        _ = await TestSupport.waitUntil { store.phase == .unlocked(importing: false) }
 
-        // Bypass the engine: commit only the original (the crash
-        // window between the two commits).
+        // Crash window: only the original commits.
         let stillURL = try TestSupport.fixtureURL("fixture-0032.jpg")
         var meta = MediaMetadata(kind: .original, importedAt: Date())
         meta.filename = "fixture-0032.jpg"
         meta.contentHash = try ImportEngine.sha256Hex(of: stillURL)
-        let gallery = try #require(await vault.coordinator.debugGallery())
+        let gallery = try #require(await coordinator.debugGallery())
         _ = try await gallery.importFile(at: stillURL, metadata: meta.encoded())
 
-        _ = await TestSupport.waitUntil { vault.sink.items.count == 1 }
-        #expect(vault.sink.items[0].thumbnailID == nil)
-        #expect(vault.sink.reports.last?.missingThumbnails == 1)
-
-        // Regenerate (the store triggers this from the report).
-        await vault.coordinator.regenerateThumbnail(for: vault.sink.items[0].id)
+        // The snapshot feed reports the missing thumbnail and the
+        // store schedules regeneration on its own.
         #expect(
             await TestSupport.waitUntil {
-                vault.sink.items.first?.thumbnailID != nil
-            })
-        #expect(vault.sink.reports.last?.missingThumbnails == 0)
+                store.items.first?.thumbnailID != nil
+            }, "on-open recovery never healed the missing thumbnail")
+        #expect(store.indexReport.missingThumbnails == 0)
     }
 
     @Test func orphanThumbnailIsIgnoredAndReported() async throws {

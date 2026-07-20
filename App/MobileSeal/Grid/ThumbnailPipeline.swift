@@ -88,6 +88,11 @@ actor ThumbnailPipeline {
         inflight[key] = task
         let image = await task.value
         inflight[key] = nil
+        // `await` is an actor reentrancy point: purge() (lock) may
+        // have run while this decode was in flight. A dropped reader
+        // marks that generation dead — never repopulate the purged
+        // cache with plaintext (wave-001 claude-code #1 / coderabbit).
+        guard reader != nil else { return nil }
         if let image {
             insert(image, for: key)
         }
@@ -113,6 +118,11 @@ actor ThumbnailPipeline {
 
     private func insert(_ image: UIImage, for key: FileID) {
         let cost = Self.cost(of: image)
+        // Re-insert must not double-count: subtract the entry being
+        // replaced or the ceiling drifts down (wave-001 claude-code #8).
+        if let existing = cache.removeValue(forKey: key) {
+            cacheCost -= Self.cost(of: existing)
+        }
         cache[key] = image
         cacheOrder.removeAll { $0 == key }
         cacheOrder.append(key)

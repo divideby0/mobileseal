@@ -80,6 +80,25 @@ struct GalleryView: View {
                         .padding()
                 }
             }
+            .safeAreaInset(edge: .top) {
+                // Recovery status is REPORTED, not just counted
+                // (Codex B2; wave-001 codex #5): orphaned links and
+                // undecodable entries surface to the user.
+                let attention =
+                    store.indexReport.orphanThumbnails
+                    + store.indexReport.undecodableEntries
+                if attention > 0 {
+                    Label(
+                        "\(attention) vault \(attention == 1 ? "entry needs" : "entries need") attention — orphaned or unreadable link records",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.footnote)
+                    .padding(8)
+                    .frame(maxWidth: .infinity)
+                    .background(.yellow.opacity(0.2))
+                    .accessibilityIdentifier("recovery-banner")
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if UITestSupport.isUITestMode {
                     // Machine-readable item count: the perf test's

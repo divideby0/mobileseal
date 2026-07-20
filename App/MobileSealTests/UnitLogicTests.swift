@@ -104,7 +104,7 @@ import VaultCore
         var measured: [String] = []
         let (params, record) = KDFCalibrator.calibrate(
             scratchDir: scratch(),
-            measure: { p in
+            measure: { p, _ in
                 measured.append(KDFCalibrator.label(p))
                 return 0.4 * Double(p.memlimit) / Double(256 << 20)
             },
@@ -119,7 +119,7 @@ import VaultCore
     @Test func staysModerateWithoutHeadroom() {
         let (params, record) = KDFCalibrator.calibrate(
             scratchDir: scratch(),
-            measure: { _ in 0.3 },
+            measure: { _, _ in 0.3 },
             headroom: 700 << 20,  // < 2 × 384 MiB
             thermal: .nominal)
         #expect(params == KDFCalibrator.moderate)
@@ -129,7 +129,7 @@ import VaultCore
     @Test func unknownHeadroomNeverRaises() {
         let (params, _) = KDFCalibrator.calibrate(
             scratchDir: scratch(),
-            measure: { _ in 0.2 },
+            measure: { _, _ in 0.2 },
             headroom: nil,
             thermal: .nominal)
         #expect(params == KDFCalibrator.moderate)
@@ -138,7 +138,7 @@ import VaultCore
     @Test func thermalPressureFallsBackToModerate() {
         let (params, record) = KDFCalibrator.calibrate(
             scratchDir: scratch(),
-            measure: { _ in
+            measure: { _, _ in
                 Issue.record("measurement must not run under thermal pressure")
                 return 0.3
             },
@@ -152,7 +152,7 @@ import VaultCore
         // Prediction says 512 MiB fits, verification disagrees.
         let (params, record) = KDFCalibrator.calibrate(
             scratchDir: scratch(),
-            measure: { p in p.memlimit == KDFCalibrator.moderate.memlimit ? 0.4 : 1.4 },
+            measure: { p, _ in p.memlimit == KDFCalibrator.moderate.memlimit ? 0.4 : 1.4 },
             headroom: 4 << 30,
             thermal: .nominal)
         #expect(params == KDFCalibrator.moderate)
@@ -162,7 +162,7 @@ import VaultCore
     @Test func slowDeviceStaysAtFloor() {
         let (params, record) = KDFCalibrator.calibrate(
             scratchDir: scratch(),
-            measure: { _ in 1.3 },
+            measure: { _, _ in 1.3 },
             headroom: 4 << 30,
             thermal: .nominal)
         #expect(params == KDFCalibrator.moderate)
@@ -173,7 +173,7 @@ import VaultCore
         struct Boom: Error {}
         let (params, record) = KDFCalibrator.calibrate(
             scratchDir: scratch(),
-            measure: { _ in throw Boom() },
+            measure: { _, _ in throw Boom() },
             headroom: 4 << 30,
             thermal: .nominal)
         #expect(params == KDFCalibrator.moderate)

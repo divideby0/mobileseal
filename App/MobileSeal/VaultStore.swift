@@ -1,6 +1,11 @@
 import Foundation
 import Observation
+import OSLog
 import VaultCore
+
+#if os(iOS)
+    import UIKit
+#endif
 
 /// MainActor view state. Adopts the coordinator's sink; forwards user
 /// intents down to the actor. Owns the two pieces of policy that are
@@ -9,6 +14,9 @@ import VaultCore
 @MainActor
 @Observable
 final class VaultStore: VaultUISink {
+    private static let log = Logger(
+        subsystem: "com.gmail.cedric.hurst.mobileseal", category: "lock")
+
     let coordinator: VaultCoordinator
     private let coordinatorContainer: AppContainer
     private let defaults: UserDefaults
@@ -21,11 +29,17 @@ final class VaultStore: VaultUISink {
     private(set) var importProgress: ImportProgress?
     /// Last finished batch — drives the import summary sheet,
     /// including the interrupted-batch resume prompt (grill Q8).
+    /// Cleared synchronously on lock: outcomes carry provider
+    /// filenames, which are app-side plaintext (wave-001 codex #3).
     var lastImportSummary: ImportSummary?
     /// Privacy shield: raised the moment the scene leaves `.active`
     /// (before snapshot capture), lowered on `.active`. Never locks by
-    /// itself.
+    /// itself — but when a lock is PENDING, the shield stays up until
+    /// the phase actually reaches `.locked` (wave-001 cc #5 / codex #1
+    /// / coderabbit converged: the grace-return path briefly rendered
+    /// the unlocked grid unshielded).
     private(set) var shielded = false
+    private var lockPending = false
 
     var lockPreferences: LockPreferences {
         didSet { lockPreferences.save(to: defaults) }
@@ -35,6 +49,10 @@ final class VaultStore: VaultUISink {
     private var lastInteraction = Date()
     private var backgroundedAt: Date?
     private var idleTask: Task<Void, Never>?
+    /// Originals already given one regeneration attempt this session —
+    /// keeps the on-open recovery pass idempotent so a persistently
+    /// undecodable original does not retry every generation.
+    private var regenerationAttempted: Set<FileID> = []
 
     /// `defaults` is injectable so app-HOSTED unit tests never write
     /// preferences into the real app domain — persisted test values
@@ -71,9 +89,27 @@ final class VaultStore: VaultUISink {
     }
 
     /// Explicit lock control (GOAL WS D.1) and every auto-lock path.
+    /// Plaintext-bearing UI state clears SYNCHRONOUSLY here; the key
+    /// drain runs on the coordinator under a background-task assertion
+    /// so iOS lets the consuming `lock()` finish before suspending the
+    /// process (wave-001 cc #4).
     func lock() {
-        NSLog("MOBILESEAL-LOCK store.lock() called")
-        Task { await lockAndPurge() }
+        Self.log.debug("store.lock() requested")
+        lockPending = true
+        lastImportSummary = nil
+        importProgress = nil
+        regenerationAttempted = []
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+            let assertion = UIApplication.shared.beginBackgroundTask(withName: "vault-lock")
+            Task {
+                await lockAndPurge()
+                if assertion != .invalid {
+                    UIApplication.shared.endBackgroundTask(assertion)
+                }
+            }
+        #else
+            Task { await lockAndPurge() }
+        #endif
     }
 
     private func lockAndPurge() async {
@@ -85,9 +121,17 @@ final class VaultStore: VaultUISink {
         Task { await coordinator.startImport(providers: providers) }
     }
 
+    /// One regeneration attempt per missing-thumbnail original (the
+    /// Codex B2 on-open recovery rule; wired from `itemsChanged` —
+    /// wave-001 cc #2 / codex #5 found the previous version dead code).
     func regenerateMissingThumbnails() {
+        let candidates = items.filter {
+            $0.thumbnailID == nil && !$0.damaged && !regenerationAttempted.contains($0.id)
+        }
+        guard !candidates.isEmpty else { return }
+        for item in candidates { regenerationAttempted.insert(item.id) }
         Task {
-            for item in items where item.thumbnailID == nil {
+            for item in candidates {
                 await coordinator.regenerateThumbnail(for: item.id)
             }
         }
@@ -96,29 +140,36 @@ final class VaultStore: VaultUISink {
     // MARK: - scenePhase policy (GOAL WS D.1/D.2)
 
     func sceneBecameInactive() {
-        NSLog("MOBILESEAL-SCENE inactive")
+        Self.log.debug("scene inactive — shield up")
         shielded = true
     }
 
     func sceneBecameActive() {
-        NSLog("MOBILESEAL-SCENE active")
+        Self.log.debug("scene active")
         // Grace-period policy: an app backgrounded longer than the
         // grace window locks on RETURN (timers do not run while
         // suspended; memory custody during the window is the accepted
-        // trade the preference names).
-        if let away = backgroundedAt,
-            lockPreferences.backgroundPolicy == .grace,
-            Date().timeIntervalSince(away) > LockPreferences.gracePeriod
-        {
-            lock()
-        }
+        // trade the preference names). The shield stays UP through a
+        // pending lock — it drops in phaseChanged when `.locked`
+        // lands, never before.
+        let mustLock =
+            backgroundedAt.map {
+                lockPreferences.backgroundPolicy == .grace
+                    && Date().timeIntervalSince($0) > lockPreferences.gracePeriod
+            } ?? false
         backgroundedAt = nil
-        shielded = false
-        noteInteraction()
+        if mustLock {
+            lock()
+        } else if !lockPending {
+            shielded = false
+            noteInteraction()
+        }
     }
 
     func sceneEnteredBackground() {
-        NSLog("MOBILESEAL-SCENE background policy=%@", lockPreferences.backgroundPolicy.rawValue)
+        Self.log.debug(
+            "scene background policy=\(self.lockPreferences.backgroundPolicy.rawValue, privacy: .public)"
+        )
         shielded = true
         backgroundedAt = Date()
         switch lockPreferences.backgroundPolicy {
@@ -131,7 +182,7 @@ final class VaultStore: VaultUISink {
 
     // MARK: - idle backstop
 
-    /// Any user interaction (the PrivacyWindow reports touches).
+    /// Any user interaction (grid scrolls, taps, navigation).
     func noteInteraction() {
         lastInteraction = Date()
     }
@@ -145,7 +196,7 @@ final class VaultStore: VaultUISink {
                 let timeout = self.lockPreferences.idleTimeout
                 guard timeout > 0, self.phase.isUnlocked, !self.shielded else { continue }
                 if Date().timeIntervalSince(self.lastInteraction) >= timeout {
-                    NSLog("MOBILESEAL-LOCK idle backstop fired (timeout=%f)", timeout)
+                    Self.log.debug("idle backstop fired")
                     self.lock()
                 }
             }
@@ -157,6 +208,12 @@ final class VaultStore: VaultUISink {
     func phaseChanged(_ phase: VaultPhase) {
         self.phase = phase
         if case .unlocked = phase { noteInteraction() }
+        if phase == .locked {
+            lockPending = false
+            // The shield outlives the lock only while the scene is
+            // away; a foreground lock lands on the unlock screen.
+            if backgroundedAt == nil { shielded = false }
+        }
     }
 
     func unlockFailed(_ failure: UnlockFailure) {
@@ -172,6 +229,11 @@ final class VaultStore: VaultUISink {
             return item
         }
         self.indexReport = report
+        // On-open recovery (Codex B2): heal missing thumbnails as the
+        // index reports them.
+        if report.missingThumbnails > 0, phase.isUnlocked {
+            regenerateMissingThumbnails()
+        }
     }
 
     func readerChanged(_ reader: ChunkReader?) {
@@ -183,6 +245,10 @@ final class VaultStore: VaultUISink {
     }
 
     func importFinished(_ summary: ImportSummary) {
+        // A summary arriving after (or during) a lock is dropped: its
+        // outcomes carry filenames, and the locked UI must hold no
+        // import residue.
+        guard !lockPending, phase.isUnlocked else { return }
         lastImportSummary = summary
     }
 

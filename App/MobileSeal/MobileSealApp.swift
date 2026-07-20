@@ -89,9 +89,13 @@ struct ContentView: View {
             }
 
             if store.shielded {
+                // No insertion animation: the shield must be opaque in
+                // the same frame the scene resigns active, or the
+                // system snapshot can catch mid-fade content
+                // (wave-001 codex #2).
                 ShieldView()
+                    .transaction { $0.animation = nil }
             }
         }
-        .animation(.default, value: store.shielded)
     }
 }

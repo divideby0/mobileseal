@@ -99,7 +99,13 @@ struct MediaIndex: Sendable, Equatable {
         var missing: Set<FileID> = []
 
         for (id, meta) in records where live.contains(id) {
-            guard let parent = meta.parentFileID else { continue }
+            guard let parent = meta.parentFileID else {
+                // A derived entry with a missing or unparseable parent
+                // link is as orphaned as it gets — report it, never
+                // silently drop it (wave-001 claude-code #9).
+                if meta.kind != .original { orphans.insert(id) }
+                continue
+            }
             let parentLive =
                 live.contains(parent) && records[parent]?.kind == .original
             switch meta.kind {

@@ -22,12 +22,13 @@ struct LockPreferences: Equatable, Sendable {
     static let backgroundPolicyKey = "lock.backgroundPolicy"
     static let idleTimeoutKey = "lock.idleTimeoutSeconds"
 
-    /// Grace window before a backgrounded app counts as "away".
-    static let gracePeriod: TimeInterval = 30
-
     var backgroundPolicy: BackgroundLockPolicy = .immediate
     /// Foreground idle backstop; 0 disables.
     var idleTimeout: TimeInterval = 300
+    /// Grace window before a backgrounded app counts as "away".
+    /// Instance-level (not persisted) so gate-5 tests can exercise the
+    /// lock-after-window branch with a tiny window (wave-001 cc #11).
+    var gracePeriod: TimeInterval = 30
 
     static func load(from defaults: UserDefaults = .standard) -> LockPreferences {
         var prefs = LockPreferences()

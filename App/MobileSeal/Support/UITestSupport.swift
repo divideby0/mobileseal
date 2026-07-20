@@ -7,9 +7,16 @@ import Foundation
 enum UITestSupport {
     /// Present → the gallery view shows a hidden "import fixtures"
     /// button that feeds the committed fixture batch through
-    /// `FixtureMediaProvider`s.
+    /// `FixtureMediaProvider`s. Debug builds ONLY: a Release binary
+    /// must have no reachable seeding path or KDF-downgrade seam
+    /// (wave-001 claude-code #7) — the flag is compile-time false
+    /// there.
     static var isUITestMode: Bool {
-        ProcessInfo.processInfo.arguments.contains("-mobileseal-uitest")
+        #if DEBUG
+            return ProcessInfo.processInfo.arguments.contains("-mobileseal-uitest")
+        #else
+            return false
+        #endif
     }
 
     /// Present → the app container roots in a caller-named directory

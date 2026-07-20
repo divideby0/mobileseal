@@ -67,7 +67,10 @@ struct SettingsView: View {
                         }
                         LabeledContent("Thermal state", value: calibration.thermalState)
                         if let mem = calibration.availableMemoryMiB {
-                            LabeledContent("Free memory at run", value: "\(mem) MiB")
+                            LabeledContent("Free memory before run", value: "\(mem) MiB")
+                        }
+                        if let peak = calibration.peakFootprintMiB {
+                            LabeledContent("Peak footprint during run", value: "\(peak) MiB")
                         }
                         LabeledContent(
                             "Build", value: calibration.releaseBuild ? "release" : "debug")
@@ -96,11 +99,14 @@ struct SettingsView: View {
 /// Privacy shield (Codex A2): covers content from the instant the
 /// scene leaves `.active` — BEFORE the system snapshot — and during
 /// `.locking`/`.locked` under a shielded scene. Redaction ≠ lock.
+/// FULLY OPAQUE and inserted without animation: a translucent or
+/// fading cover can leave recognizable gallery content in the
+/// app-switcher snapshot (wave-001 codex #2).
 struct ShieldView: View {
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(.ultraThinMaterial)
+                .fill(Color(.systemBackground))
             Image(systemName: "lock.shield.fill")
                 .font(.system(size: 64))
                 .foregroundStyle(.secondary)

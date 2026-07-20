@@ -291,6 +291,20 @@ actor VaultCoordinator {
         phase = .unlocked(importing: true)
         await publishPhase()
 
+        // Catch the index up with the CURRENT committed snapshot
+        // before capturing the dedup hash set — the snapshot feed
+        // fills the index asynchronously, and an import started right
+        // after unlock would otherwise miss existing originals and
+        // re-import duplicates (wave-001 claude-code #10).
+        let current = await gallery.snapshot()
+        if !current.files.allSatisfy({ index.knows($0.fileID) }) {
+            let reader = await gallery.makeReader()
+            for file in current.files where !index.knows(file.fileID) {
+                guard let metadata = try? reader.metadata(for: file.fileID) else { break }
+                index.record(file.fileID, metadata: metadata)
+            }
+        }
+
         let engine = ImportEngine(gallery: gallery, container: container)
         let existing = index.originalContentHashes()
         let sink = self.sink
