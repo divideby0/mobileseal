@@ -90,19 +90,29 @@ final class E2EFlowUITests: XCTestCase {
             durationBadge.waitForExistence(timeout: 15),
             "no video duration badge in the grid")
 
-        // Grid order is newest-import-first: [corrupt, unsupported,
-        // tail-moov, fast-start, images…].
+        // Cells are selected by SEMANTIC value, not grid position
+        // (XCUITest cell order is not reliably the sort order).
         // --- Unsupported-but-authentic codec: its OWN state, never
         // the damaged badge (Codex A6).
-        grid.cells.element(boundBy: 1).tap()
+        let unsupportedCell = grid.cells.matching(
+            NSPredicate(format: "value == 'video no preview'")
+        ).firstMatch
+        XCTAssertTrue(
+            unsupportedCell.waitForExistence(timeout: 15),
+            "unsupported-video cell not found")
+        unsupportedCell.tap()
         // The pager's container view is plain UIKit; anchor on its
         // close button (buttons always surface to XCUITest).
         let pagerClose = app.buttons["pager-close"]
         XCTAssertTrue(pagerClose.waitForExistence(timeout: 15), "pager never opened")
         let state = app.staticTexts["playback-state"]
-        XCTAssertTrue(
-            state.waitForExistence(timeout: 20),
-            "unsupported-codec state never appeared")
+        let stateAppeared = state.waitForExistence(timeout: 20)
+        if !stateAppeared {
+            print("E2EDBG tree-begin")
+            print(app.debugDescription)
+            print("E2EDBG tree-end")
+        }
+        XCTAssertTrue(stateAppeared, "unsupported-codec state never appeared")
         XCTAssertTrue(
             state.label.contains("Can't play"),
             "expected can't-play copy, got: \(state.label)")
@@ -110,8 +120,13 @@ final class E2EFlowUITests: XCTestCase {
         XCTAssertTrue(grid.waitForExistence(timeout: 10))
 
         // --- Autoplay muted on landing, tap unmutes, scrub to three
-        // positions (gate 2). Cell 2 = tail-moov MOV.
-        grid.cells.element(boundBy: 2).tap()
+        // positions (gate 2) — the first playable-video cell (the
+        // newest: tail-moov MOV).
+        let videoCells = grid.cells.matching(NSPredicate(format: "value == 'video'"))
+        XCTAssertTrue(
+            videoCells.firstMatch.waitForExistence(timeout: 15),
+            "no playable-video cell found")
+        videoCells.element(boundBy: 0).tap()
         XCTAssertTrue(pagerClose.waitForExistence(timeout: 15), "pager never opened on video")
         let mute = app.buttons["mute-toggle"]
         XCTAssertTrue(mute.waitForExistence(timeout: 20), "video chrome never appeared")
@@ -154,7 +169,10 @@ final class E2EFlowUITests: XCTestCase {
         // give it a beat so the reopened stream reads the damaged
         // bytes cold instead of a still-resident clean chunk.
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-        grid.cells.element(boundBy: 2).tap()
+        // The tamper seam targets the newest PLAYABLE video — the
+        // same first value=='video' cell.
+        grid.cells.matching(NSPredicate(format: "value == 'video'"))
+            .element(boundBy: 0).tap()
         XCTAssertTrue(pagerClose.waitForExistence(timeout: 15))
         let damagedState = app.staticTexts["playback-state"]
         XCTAssertTrue(

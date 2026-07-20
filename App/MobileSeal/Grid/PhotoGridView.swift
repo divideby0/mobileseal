@@ -329,10 +329,13 @@ final class PhotoCell: UICollectionViewCell {
         } else if item.thumbnailID == nil {
             badge.image = UIImage(systemName: "eye.slash.fill")
             badge.isHidden = false
-            accessibilityValue = "no preview"
+            // Distinguish the poster-less VIDEO (unsupported codec —
+            // its own pager state) from an undecodable still; the e2e
+            // gate selects cells by these values.
+            accessibilityValue = item.isVideo ? "video no preview" : "no preview"
         } else {
             badge.isHidden = true
-            accessibilityValue = nil
+            accessibilityValue = item.isVideo ? "video" : nil
         }
         loadTask?.cancel()
         loadTask = Task { [weak self] in

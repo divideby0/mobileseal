@@ -103,15 +103,17 @@ final class PlaybackPagerUITests: XCTestCase {
         XCTAssertLessThanOrEqual(worstPlayers, 1, "one-active-player violated")
         XCTAssertFalse(worstOverBudget, "cache bytes exceeded the residency budget")
 
-        // Swipe back onto a video and confirm playback actually
-        // activates for the LANDED item (players becomes 1).
-        for _ in 0..<6 {
+        // Swipe back toward the head of the batch until a VIDEO page
+        // lands and confirm playback activates for the landed item
+        // (players becomes 1) — bounded, order-agnostic.
+        var activated = false
+        for _ in 0..<10 where !activated {
             app.swipeRight()
+            activated = waitUntil(timeout: 3) {
+                (readCounters(app)?.players ?? 0) == 1
+            }
         }
-        let activated = waitUntil(timeout: 15) {
-            (readCounters(app)?.players ?? 0) == 1
-        }
-        XCTAssertTrue(activated, "landed video never activated its player")
+        XCTAssertTrue(activated, "no landed video ever activated its player")
 
         // Requests drain once the landed item is served.
         let drained = waitUntil(timeout: 15) {
