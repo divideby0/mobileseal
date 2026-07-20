@@ -8,14 +8,33 @@ import Foundation
 public struct UnlockSession: ~Copyable {
     public let vault: SealedVault
     let custodian: KeyCustodian
-    let inventory: Inventory
+    /// The signed manifest as of unlock (format v1 — a v0 vault was
+    /// migrated inside `unlock`).
+    let manifest: ManifestObject
+    /// The effective (tombstone-applied) entries as of unlock.
+    let visibleEntries: [InventoryEntry]
     let epoch: UInt32
+    let identity: DeviceIdentity
+    let deviceName: String
+    let rollbackStore: any RollbackStateStore
+    /// Base for this device's next HEAD counter (see `SealedVault`).
+    let ownCounterBase: UInt64
 
-    init(vault: SealedVault, custodian: KeyCustodian, inventory: Inventory, epoch: UInt32) {
+    init(
+        vault: SealedVault, custodian: KeyCustodian, manifest: ManifestObject, epoch: UInt32,
+        identity: DeviceIdentity, deviceName: String,
+        rollbackStore: any RollbackStateStore, ownCounterBase: UInt64
+    ) {
         self.vault = vault
         self.custodian = custodian
-        self.inventory = inventory
+        self.manifest = manifest
+        self.visibleEntries =
+            manifest.state.effectiveView(galleryID: vault.meta.galleryID).visibleEntries
         self.epoch = epoch
+        self.identity = identity
+        self.deviceName = deviceName
+        self.rollbackStore = rollbackStore
+        self.ownCounterBase = ownCounterBase
     }
 
     /// Locks the vault: refuses new reads immediately, waits up to
@@ -32,8 +51,13 @@ public struct UnlockSession: ~Copyable {
     /// the gallery's (and all readers') access. Exactly ONE `Gallery`
     /// per session — a second call throws `.galleryAlreadyOpen`
     /// (structural, not advisory: two instances would race the
-    /// inventory and silently drop a committed import — wave-001
+    /// manifest and silently drop a committed import — wave-001
     /// claude-code #2).
+    ///
+    /// TOFU note (GOAL WS A.2): if this device is not yet in the trust
+    /// list, its registration is folded into the gallery's next commit
+    /// automatically; call `Gallery.ensureDeviceRegistered()` to
+    /// commit it eagerly.
     public func openGallery() throws -> Gallery {
         // The claim is PROCESS-WIDE per vault directory, not
         // per-session: a second unlock() minting a second writer was
@@ -44,22 +68,25 @@ public struct UnlockSession: ~Copyable {
         }
         return Gallery(
             layout: vault.layout, meta: vault.meta, custodian: custodian,
-            inventory: inventory, epoch: epoch)
+            manifest: manifest, epoch: epoch,
+            identity: identity, deviceName: deviceName,
+            rollbackStore: rollbackStore, headCounter: ownCounterBase)
     }
 
-    /// A read-only capability over the inventory as of unlock. For
-    /// reads that must observe later imports, use
+    /// A read-only capability over the effective entries as of unlock.
+    /// For reads that must observe later commits, use
     /// `Gallery.makeReader()` against a fresh snapshot.
     public func makeReader() -> ChunkReader {
         ChunkReader(
             layout: vault.layout, galleryID: vault.meta.galleryID,
-            custodian: custodian, entries: inventory.entries)
+            custodian: custodian, entries: visibleEntries)
     }
 
-    /// Structural snapshot of the inventory as of unlock (Sendable,
-    /// carries no decrypted metadata — Codex B6).
+    /// Structural snapshot of the manifest as of unlock (Sendable,
+    /// carries no decrypted metadata — Codex B6). `generation` is the
+    /// LOCAL commit revision (review Q5).
     public func snapshot() -> InventorySnapshot {
-        InventorySnapshot(inventory)
+        InventorySnapshot(revision: manifest.localRevision, entries: visibleEntries)
     }
 
     /// Dropping a session without calling `lock()` still revokes: the

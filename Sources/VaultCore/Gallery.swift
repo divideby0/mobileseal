@@ -78,34 +78,55 @@ public actor Gallery {
     let meta: GalleryMeta
     let custodian: KeyCustodian
     let epoch: UInt32
-    private var inventory: Inventory
+    /// The current signed manifest (format v1) and this device's
+    /// signing state.
+    private var manifest: ManifestObject
+    private let identity: DeviceIdentity
+    private let deviceName: String
+    private let rollbackStore: any RollbackStateStore
+    /// Last HEAD counter this device wrote (or its recorded base);
+    /// each commit signs counter + 1 (GOAL WS B.7).
+    private var headCounter: UInt64
+    /// Effective (tombstone-applied) entries — what readers and
+    /// snapshots see. Recomputed per commit.
+    private var visibleEntries: [InventoryEntry]
     private var failpoint: CommitFailpoint = .none
     private var continuations: [UUID: AsyncStream<InventorySnapshot>.Continuation] = [:]
 
     init(
         layout: VaultLayout, meta: GalleryMeta, custodian: KeyCustodian,
-        inventory: Inventory, epoch: UInt32
+        manifest: ManifestObject, epoch: UInt32,
+        identity: DeviceIdentity, deviceName: String,
+        rollbackStore: any RollbackStateStore, headCounter: UInt64
     ) {
         self.layout = layout
         self.meta = meta
         self.custodian = custodian
-        self.inventory = inventory
+        self.manifest = manifest
         self.epoch = epoch
+        self.identity = identity
+        self.deviceName = deviceName
+        self.rollbackStore = rollbackStore
+        self.headCounter = headCounter
+        self.visibleEntries =
+            manifest.state.effectiveView(galleryID: meta.galleryID).visibleEntries
     }
 
     // MARK: - Snapshots
 
-    /// Structural snapshot of the current inventory (Codex B6: no
-    /// decrypted metadata rides in Sendable snapshot values).
+    /// Structural snapshot of the current effective entries (Codex B6:
+    /// no decrypted metadata rides in Sendable snapshot values).
+    /// `generation` is the LOCAL commit revision (review Q5).
     public func snapshot() -> InventorySnapshot {
-        InventorySnapshot(inventory)
+        InventorySnapshot(revision: manifest.localRevision, entries: visibleEntries)
     }
 
     /// Yields the current snapshot immediately, then one snapshot per
     /// committed mutation.
     public func snapshotStream() -> AsyncStream<InventorySnapshot> {
         let id = UUID()
-        let current = InventorySnapshot(inventory)
+        let current = InventorySnapshot(
+            revision: manifest.localRevision, entries: visibleEntries)
         return AsyncStream { continuation in
             continuation.yield(current)
             continuations[id] = continuation
@@ -121,18 +142,21 @@ public actor Gallery {
 
     // MARK: - Session-scoped accessors
 
-    /// Off-actor read capability over the CURRENT inventory.
+    /// Off-actor read capability over the CURRENT effective entries.
     public func makeReader() -> ChunkReader {
         ChunkReader(
             layout: layout, galleryID: meta.galleryID, custodian: custodian,
-            entries: inventory.entries)
+            entries: visibleEntries)
     }
 
     /// The app's opaque metadata blob for `fileID` (Codex B6: served
     /// only through lock-checked accessors, never snapshots).
     public func metadata(for fileID: FileID) throws -> [UInt8] {
         guard !custodian.isLocked else { throw VaultError.vaultLocked }
-        return try inventory.entry(for: fileID).metadata
+        guard let e = visibleEntries.first(where: { $0.fileID == fileID }) else {
+            throw VaultError.fileNotFound(fileID)
+        }
+        return e.metadata
     }
 
     /// Streaming range-read capability over the CURRENT inventory,
@@ -144,7 +168,7 @@ public actor Gallery {
     ) -> StreamingReader {
         StreamingReader(
             galleryID: meta.galleryID, custodian: custodian,
-            entries: inventory.entries, provider: provider, cache: cache)
+            entries: visibleEntries, provider: provider, cache: cache)
     }
 
     // MARK: - Import
@@ -203,7 +227,7 @@ public actor Gallery {
         // through and re-seal, turning the natural user response to a
         // broken file ("import it again") into self-repair instead of
         // a second unreadable entry (wave-003 claude-code #4).
-        if let existing = inventory.entries.first(where: {
+        if let existing = visibleEntries.first(where: {
             $0.dedupHash == dedupHash && $0.unpaddedLength == unpaddedLength
         }),
             existing.chunkAddresses.allSatisfy({
@@ -270,38 +294,127 @@ public actor Gallery {
         }
     }
 
-    /// Seals inventory(generation+1, entries + new entry) and runs the
-    /// commit protocol; publishes the new snapshot on success.
+    /// Signs `entry` as this device and commits manifest(revision+1,
+    /// entries ∪ {entry}) through the commit protocol.
     private func commitAppending(_ entry: InventoryEntry, stagedIn tx: CommitTx?) throws {
+        var next = manifest
+        let signed = SignedAddEntry.minted(
+            entry: entry, author: identity, migratedFromV0: false, galleryID: meta.galleryID)
+        next.state.entries = ManifestState.mergeEntries(
+            next.state.entries, [signed], galleryID: meta.galleryID)
+        try commitManifest(&next, stagedIn: tx)
+    }
+
+    // MARK: - Trust (GOAL WS A.2) and delete (GOAL WS B.3/C.2)
+
+    /// TOFU self-registration: commits a trust-list update naming this
+    /// device if it is not yet listed. Registration also folds into
+    /// any other commit automatically — this explicit form exists so
+    /// enrollment happens deterministically at first write-capable
+    /// unlock, not lazily at first import.
+    public func ensureDeviceRegistered() throws {
+        guard !manifest.state.trustList.contains(identity.publicKey) else { return }
+        var next = manifest
+        try commitManifest(&next, stagedIn: nil)
+    }
+
+    /// Whether this device is in the current trust list (test surface).
+    public var isDeviceRegistered: Bool {
+        manifest.state.trustList.contains(identity.publicKey)
+    }
+
+    /// Devices in the current trust list (structural: public keys,
+    /// roles, names — nothing secret).
+    public func trustedDevices() -> [(publicKey: DevicePublicKey, name: String)] {
+        manifest.state.trustList.devices.map { ($0.publicKey, $0.name) }
+    }
+
+    /// Emits signed tombstones for the given entries — the
+    /// delete-for-everyone tier (GOAL WS C.2). The app passes the
+    /// whole media AGGREGATE (original + linked thumbnail/Live-Photo
+    /// entries); VaultCore records one tombstone per entry, each
+    /// carrying the gallery-bound canonical digest of its target.
+    /// Absent or already-tombstoned IDs are skipped (idempotent).
+    /// Single-user semantics: this device is always authorized (it is
+    /// trusted); the author-or-owner rule's full force arrives with
+    /// sharing.
+    public func deleteEntries(_ fileIDs: [FileID]) throws {
+        let targets = Set(fileIDs)
+        let present = manifest.state.entries.filter { targets.contains($0.fileID) }
+        let alreadyTombstoned = Set(
+            manifest.state.tombstones.map(\.targetFileID))
+        let newTombstones = present
+            .filter { !alreadyTombstoned.contains($0.fileID) }
+            .map { entry in
+                SignedTombstone.minted(
+                    targetFileID: entry.fileID,
+                    targetDigest: entry.canonicalDigest(galleryID: meta.galleryID),
+                    author: identity, galleryID: meta.galleryID)
+            }
+        guard !newTombstones.isEmpty else { return }
+        var next = manifest
+        next.state.tombstones = ManifestState.mergeTombstones(
+            next.state.tombstones, newTombstones)
+        try commitManifest(&next, stagedIn: nil)
+    }
+
+    // MARK: - Commit core
+
+    /// Seals `next` (with revision+1 and any pending TOFU registration
+    /// folded in), signs a fresh HEAD descriptor with this device's
+    /// next counter, and runs the commit protocol; publishes the new
+    /// snapshot on success.
+    private func commitManifest(_ next: inout ManifestObject, stagedIn tx: CommitTx?) throws {
         guard !custodian.isLocked else {
             tx?.abort()
             throw VaultError.vaultLocked
         }
-        var next = inventory
-        next.generation += 1
-        next.entries.append(entry)
+        next.localRevision += 1
+        // TOFU (WS A.2): a device not yet in the trust list registers
+        // itself in the same commit — append-only union, version + 1,
+        // member role (genesis owner role is minted at create/migrate).
+        if !next.state.trustList.contains(identity.publicKey) {
+            let devices = SignedTrustList.mergeDevices(
+                next.state.trustList.devices,
+                [
+                    TrustedDevice(
+                        publicKey: identity.publicKey, role: .member,
+                        addedAtUnixMS: UInt64(Date().timeIntervalSince1970 * 1000),
+                        name: deviceName)
+                ])
+            next.state.trustList = SignedTrustList.minted(
+                listVersion: next.state.trustList.listVersion + 1,
+                devices: devices, signer: identity, galleryID: meta.galleryID)
+        }
+        let counter = headCounter + 1
         let lease = try custodian.leaseKey()
         let object = try lease.withKey { dek in
             try next.sealObject(dek: dek, galleryID: meta.galleryID, epoch: epoch)
         }
         let commitTx = try tx ?? CommitTx(layout: layout)
         do {
-            _ = try commitTx.commit(inventoryObject: object, failpoint: failpoint)
+            _ = try commitTx.commit(manifestObject: object, failpoint: failpoint) { address in
+                let descriptor = SignedHeadDescriptor.minted(
+                    manifestAddress: address, counter: counter,
+                    author: identity, galleryID: meta.galleryID)
+                return try lease.withKey { dek in
+                    try HeadV1.serialize(
+                        descriptor: descriptor, dek: dek, galleryID: meta.galleryID, epoch: epoch)
+                }
+            }
         } catch {
             // If the commit POINT was crossed (HEAD now names the new
-            // inventory) before a later durability step failed, adopt
+            // manifest) before a later durability step failed, adopt
             // the post-state before rethrowing — otherwise this actor
             // would rebuild from stale memory and its next commit
             // would silently erase an already-visible entry (wave-003
             // codex #5).
             let committedAddress = ChunkAddress.compute(over: object)
             if let headData = FileManager.default.contents(atPath: layout.headURL.path),
-                let headAddress = try? Head.parse([UInt8](headData)),
-                headAddress == committedAddress
+                let parsed = try? HeadFile.parse([UInt8](headData)),
+                parsed.address == committedAddress
             {
-                inventory = next
-                let snapshot = InventorySnapshot(next)
-                for c in continuations.values { c.yield(snapshot) }
+                adopt(next, counter: counter)
             } else if !(error is SimulatedCrash) {
                 // Not crossed and not a simulated crash (whose WAL
                 // state the recovery tests own): clean the staging dir
@@ -311,8 +424,20 @@ public actor Gallery {
             }
             throw error
         }
-        inventory = next
-        let snapshot = InventorySnapshot(next)
+        adopt(next, counter: counter)
+    }
+
+    private func adopt(_ next: ManifestObject, counter: UInt64) {
+        manifest = next
+        headCounter = counter
+        // High-water bookkeeping (WS B.7) is device-local state; a
+        // failed write must not fail the already-durable commit — the
+        // next unlock re-records the observed counter.
+        try? rollbackStore.recordObservation(
+            galleryID: meta.galleryID, signer: identity.publicKey, counter: counter)
+        visibleEntries = next.state.effectiveView(galleryID: meta.galleryID).visibleEntries
+        let snapshot = InventorySnapshot(
+            revision: next.localRevision, entries: visibleEntries)
         for c in continuations.values { c.yield(snapshot) }
     }
 

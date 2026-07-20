@@ -39,7 +39,10 @@ private var katDir: URL {
 
         let password = "kat-password-2026"
         let pw = try SecureBytes(nfcNormalizedPassword: password)
-        let vault = try SealedVault.create(at: vaultDir, password: pw, kdfParams: testKDF)
+        // The committed KAT vault stays FORMAT v0: it doubles as the
+        // migration-input fixture (a "backed-up v0 vault"); the v1
+        // conformance fixture is generated separately from it.
+        let vault = try SealedVault.createV0(at: vaultDir, password: pw, kdfParams: testKDF)
 
         let mediaA = randomBytes(100_000, seed: 1001)
         try Data(mediaA).write(to: katDir.appendingPathComponent("file-a.bin"))
