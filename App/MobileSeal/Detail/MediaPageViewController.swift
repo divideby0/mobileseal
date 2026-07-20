@@ -266,6 +266,16 @@ final class MediaPageViewController: UIViewController {
                     }
                 }
             }
+            // An unsupported codec never fails the item's status — it
+            // just reports unplayable (Codex A6): probe explicitly so
+            // "can't play this format" actually shows.
+            let asset = item.asset
+            Task { [weak self] in
+                let playable = (try? await asset.load(.isPlayable)) ?? true
+                if !playable {
+                    self?.showPlaybackFailure()
+                }
+            }
         }
         externalObservation = player.observe(\.isExternalPlaybackActive) {
             [weak self] _, _ in

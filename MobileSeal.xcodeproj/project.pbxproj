@@ -11,6 +11,7 @@
 		06425F50FCEAC2CB3D378CE1 /* StillDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4F604044C55F3A3C633211 /* StillDecoder.swift */; };
 		065A2A38B13C361C90241D26 /* DeviceBenchmarkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87B24410F9468AD33632FE65 /* DeviceBenchmarkTests.swift */; };
 		0E76BC4B7393878690F87526 /* MediaPagerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 642A619D53D30EC680FC1605 /* MediaPagerViewController.swift */; };
+		10024F08C3763BFDA6E6CFC1 /* PlaybackCustodyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01F374D3176703C6E1B7648 /* PlaybackCustodyTests.swift */; };
 		14D88BDB62C145F206046B65 /* UnlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D803939E28AC68A0098C62C0 /* UnlockView.swift */; };
 		163948A7485190F6B857B747 /* VideoPoster.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13670DD87A65771CB2761B6C /* VideoPoster.swift */; };
 		1B238209AEB8BD576BAF53D6 /* VaultCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1B65688930992E5560E77A23 /* VaultCore */; };
@@ -99,6 +100,7 @@
 		C3E3AE96D35D7B6481EB94F3 /* ScenePhaseLockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenePhaseLockTests.swift; sourceTree = "<group>"; };
 		CE841CD451332625C364F9B0 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		CEC4FD59E43E781C9A6F44F2 /* ThumbnailRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailRecoveryTests.swift; sourceTree = "<group>"; };
+		D01F374D3176703C6E1B7648 /* PlaybackCustodyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackCustodyTests.swift; sourceTree = "<group>"; };
 		D0C8862F06BA77B97BEFB50A /* GridScrollPerfUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridScrollPerfUITests.swift; sourceTree = "<group>"; };
 		D2DE2D85D0C485969616A544 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		D803939E28AC68A0098C62C0 /* UnlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnlockView.swift; sourceTree = "<group>"; };
@@ -245,6 +247,7 @@
 				7824833B39F6B5C3CAFE13D7 /* CoordinatorLifecycleTests.swift */,
 				87B24410F9468AD33632FE65 /* DeviceBenchmarkTests.swift */,
 				C1DAEBBD38D88CF0D3BF252E /* ImportPipelineTests.swift */,
+				D01F374D3176703C6E1B7648 /* PlaybackCustodyTests.swift */,
 				C3E3AE96D35D7B6481EB94F3 /* ScenePhaseLockTests.swift */,
 				CE841CD451332625C364F9B0 /* TestSupport.swift */,
 				CEC4FD59E43E781C9A6F44F2 /* ThumbnailRecoveryTests.swift */,
@@ -458,6 +461,7 @@
 				7D44F01901C8F26704C2E9BF /* CoordinatorLifecycleTests.swift in Sources */,
 				065A2A38B13C361C90241D26 /* DeviceBenchmarkTests.swift in Sources */,
 				FAE28E94A6E31A203763BF68 /* ImportPipelineTests.swift in Sources */,
+				10024F08C3763BFDA6E6CFC1 /* PlaybackCustodyTests.swift in Sources */,
 				2F335192F234C0A2AF332000 /* ScenePhaseLockTests.swift in Sources */,
 				FA5830048E1FDC8B78DB943B /* TestSupport.swift in Sources */,
 				815146C0C8AFDD4A95E5915C /* ThumbnailRecoveryTests.swift in Sources */,

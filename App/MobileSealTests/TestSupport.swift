@@ -101,12 +101,14 @@ final class RecordingSink: VaultUISink {
     private(set) var itemsHistory: [[MediaItem]] = []
     private(set) var reports: [IndexReport] = []
     private(set) var readers: [ChunkReader?] = []
+    private(set) var streamingReaders: [StreamingReader?] = []
     private(set) var progress: [ImportProgress?] = []
     private(set) var summaries: [ImportSummary] = []
 
     var phase: VaultPhase? { phases.last }
     var items: [MediaItem] { itemsHistory.last ?? [] }
     var currentReader: ChunkReader? { readers.last ?? nil }
+    var currentStreamingReader: StreamingReader? { streamingReaders.last ?? nil }
     var lastSummary: ImportSummary? { summaries.last }
 
     func phaseChanged(_ phase: VaultPhase) { phases.append(phase) }
@@ -116,6 +118,9 @@ final class RecordingSink: VaultUISink {
         reports.append(report)
     }
     func readerChanged(_ reader: ChunkReader?) { readers.append(reader) }
+    func streamingReaderChanged(_ reader: StreamingReader?) {
+        streamingReaders.append(reader)
+    }
     func importProgressed(_ progress: ImportProgress?) { self.progress.append(progress) }
     func importFinished(_ summary: ImportSummary) { summaries.append(summary) }
 }
