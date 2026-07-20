@@ -112,6 +112,10 @@ public actor Gallery {
             manifest.state.effectiveView(galleryID: meta.galleryID).visibleEntries
     }
 
+    /// The gallery's stable identity (embedders key device-local
+    /// state by it).
+    public nonisolated var galleryID: UUID { meta.galleryID }
+
     // MARK: - Snapshots
 
     /// Structural snapshot of the current effective entries (Codex B6:

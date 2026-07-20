@@ -238,7 +238,9 @@ import Testing
         // Seed the v0 world directly (v0 writers no longer exist in
         // the production path).
         let media = randomBytes(60_000, seed: 42)
-        try seedV0Entry(vault: vault, media: media, metadata: "shared.jpg")
+        _ = try seedV0Entry(
+            directory: vault.directory, password: vault.passwordText,
+            media: media, metadata: Array("shared.jpg".utf8))
 
         // Two restored copies of the same backup.
         let dirA = vault.directory.deletingLastPathComponent()
@@ -289,13 +291,16 @@ import Testing
 /// Seeds one entry into a FORMAT v0 vault by driving the v0 codecs
 /// directly (production writers only produce v1 now). Single-chunk
 /// small files only — enough for migration fixtures.
-func seedV0Entry(vault: TestVault, media: [UInt8], metadata: String) throws {
+@discardableResult
+func seedV0Entry(
+    directory: URL, password: String, media: [UInt8], metadata: [UInt8]
+) throws -> FileID {
     precondition(media.count <= 65536)
-    let sealed = try vault.open()
-    let pw = try vault.password()
+    let sealed = try SealedVault(directory: directory)
+    let pw = try SecureBytes(nfcNormalizedPassword: password)
     // (deinit zeroes the DEK on scope exit)
     let dek = try sealed.meta.unwrapDEK(password: pw, epoch: 0)
-    let layout = vault.layout
+    let layout = VaultLayout(root: directory)
     let galleryID = sealed.meta.galleryID
 
     // Read the current v0 inventory.
@@ -330,10 +335,11 @@ func seedV0Entry(vault: TestVault, media: [UInt8], metadata: String) throws {
             fileID: fileID, aadFileID: fileID, epoch: 0, chunkSize: 65536,
             unpaddedLength: UInt64(media.count), dedupHash: hasher.finalize(),
             chunkAddresses: [ChunkAddress.compute(over: sealedChunk)],
-            metadata: Array(metadata.utf8)))
+            metadata: metadata))
 
     let object = try inventory.sealObject(dek: dek, galleryID: galleryID, epoch: 0)
     let tx = try CommitTx(layout: layout)
     _ = try tx.stageChunk(sealedChunk)
     _ = try tx.commit(inventoryObject: object)
+    return fileID
 }

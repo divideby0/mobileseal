@@ -192,14 +192,12 @@ final class MediaPagerViewController: UIPageViewController {
             title: "Remove this item?",
             message:
                 "It moves to Recently Deleted for \(RecentlyDeletedStore.retentionDays) days, then is removed from the vault.",
-            preferredStyle: .actionSheet)
-        let remove = UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
-            self?.deleteItem(item)
-        }
-        remove.accessibilityLabel = "confirm-pager-remove"
-        alert.addAction(remove)
+            preferredStyle: .alert)
+        alert.addAction(
+            UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
+                self?.deleteItem(item)
+            })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.popoverPresentationController?.sourceView = view
         present(alert, animated: true)
     }
 

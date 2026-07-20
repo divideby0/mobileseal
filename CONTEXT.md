@@ -33,9 +33,45 @@ portable crypto core) is the bounded context these terms belong to;
 - **Entry** — one logical file in a gallery: file ID, chunk refs,
   lengths, and an opaque metadata blob, recorded in the inventory.
   Distinct entries may share chunks (dedup).
-- **Tombstone** — a signed deletion marker for an entry. NOT part of
-  this leg — arrives with the Manifest-CRDT format that supersedes the
-  local inventory.
+- **Device identity** — a device's Ed25519 signing keypair (CED-13),
+  generated on first use, never synced. The public key IS the
+  identity; custody is pluggable (`DeviceKeyStore`: Keychain
+  device-bound in the app, passphrase-wrapped file at the CLI leg).
+- **Trust list** — the signed, versioned device registry inside the
+  manifest: public key, name, added-at, role (owner/member —
+  recorded, not yet enforced). Append-only union in v1; genesis is
+  self-signed by the creating device; new devices self-register on
+  first write-capable unlock (**TOFU** — gallery-password possession
+  is authorization in single-user semantics).
+- **AddEntry** — a signed manifest entry: the v0 entry's full storage
+  contract (file_id, aad_file_id, dedup hash, chunk geometry,
+  metadata) plus author public key and the `migrated_from_v0` flag.
+  Entry identity is `file_id`; signatures are domain-separated and
+  gallery-bound.
+- **Tombstone** — a signed deletion marker targeting an entry's
+  `file_id` (plus the gallery-bound canonical digest when known).
+  Applied only for trusted authors with a present, digest-matching
+  target; otherwise held **inert** and reported (tombstone-before-add
+  waits for its target). Suppresses the entry; chunks remain until
+  the GC leg.
+- **Manifest (v1)** — one complete sealed operation-set snapshot
+  (trust list + signed entries + signed tombstones), content-
+  addressed like the v0 inventory, with a LOCAL commit revision that
+  is deliberately not part of the CRDT. Merge is set union: entries
+  by file_id (migration duplicates collapse to the smallest canonical
+  digest), tombstones by canonical bytes, trust by device-set union.
+- **HEAD descriptor** — the sealed, signed half of the v1 HEAD:
+  manifest address + device public key + per-device monotonic
+  counter. Feeds the **rollback detector**: a KNOWN signer presenting
+  an older-than-observed counter surfaces the "restored from an older
+  backup?" acceptance flow, which re-baselines and RECORDS the
+  acceptance in the device-local high-water store.
+- **Delete tiers** (CED-13, Signal-style): _delete-for-myself_ = soft,
+  device-local, restorable — the aggregate moves to **Recently
+  Deleted** for 30 days; _delete-for-everyone_ = hard signed
+  Tombstones for the whole aggregate (purge or expiry). Delete always
+  targets the media AGGREGATE (original + linked thumbnail +
+  Live-Photo video), never a bare entry.
 - **Sealed plane** — the ciphertext-only API surface (`SealedVault`):
   enumerate/copy chunks, audit addresses, parse `gallery.meta`
   structurally — all without the DEK. What sync/backup tooling

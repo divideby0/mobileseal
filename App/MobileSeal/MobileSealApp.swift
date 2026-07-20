@@ -33,6 +33,9 @@ struct MobileSealApp: App {
                 UserDefaults.standard.removeObject(forKey: LockPreferences.idleTimeoutKey)
             }
             container = try! AppContainer(base: base)
+            // CED-13 gate 2: the migration e2e leg starts from the
+            // committed pre-migration (v0) vault fixture.
+            UITestSupport.seedV0VaultIfRequested(into: container)
         } else {
             container = try! AppContainer.standard()
         }

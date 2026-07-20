@@ -1,17 +1,24 @@
-# Mobileseal vault on-disk formats — version 0
+# Mobileseal vault on-disk formats — versions 0 and 1
 
 This document is the **cross-platform contract** for the Mobileseal
 vault (CED-10, Codex B14). An independent implementation (the future
 macOS/Linux CLI peer) must be able to read and write a vault using only
-this document; the committed known-answer fixture under
-`Tests/VaultCoreTests/Fixtures/kat-vault/` plus
-`FormatConformanceTests` verify that property against the reference
+this document; the committed known-answer fixtures under
+`Tests/VaultCoreTests/Fixtures/` (`kat-vault/` — a pre-migration v0
+vault — and `kat-vault-v1/` — a migrated vault with a tombstoned
+aggregate) plus `FormatConformanceTests` /
+`FormatConformanceV1Tests` verify that property against the reference
 implementation.
 
-Everything here is **normative** unless marked otherwise. The local
-inventory object is format-version 0 and is explicitly a LOCAL
-artifact: the Manifest-CRDT leg supersedes it with the durable
-signed-entry format, detectable via the version field.
+Everything here is **normative** unless marked otherwise.
+
+**Format v1** (CED-13) supersedes the v0 local inventory with the
+**signed manifest**: per-device Ed25519 identities, signed
+AddEntry/Tombstone/TrustList objects, a signed HEAD descriptor, and
+set-union merge semantics. `gallery.meta`, chunk objects, chunking,
+padding, the commit protocol, and the CAS layout are UNCHANGED from
+v0 — v1 changes only what lives in `manifest/` and `HEAD`. A v0 vault
+migrates in place (§Migration); the HEAD magic is the format marker.
 
 ## Conventions
 
@@ -149,7 +156,13 @@ this from the ciphertext length **before** decrypting.
   the inventory), and every pad byte is zero. Violations are integrity
   errors, not ignorable.
 
-## Inventory object (`manifest/{hex}`)
+## Inventory object (`manifest/{hex}`) — v0, superseded
+
+> **Superseded in v1** by the Manifest object (§Format v1). A v0
+> inventory is read exactly once more — as migration input. After
+> migration the v0 object file may remain in the CAS unreferenced
+> (reclaimed by the future GC leg); readers in the v1 world ignore it
+> except during HEAD-loss recovery (§Recovery v1).
 
 | Offset | Len | Field              | Constraint    |
 | ------ | --- | ------------------ | ------------- |
@@ -275,7 +288,267 @@ signed-CRDT manifest leg owns that property.
 Implementations MUST verify the AEAD tag on every chunk read (§intake
 §11); a tag failure is an integrity error, never silently accepted.
 
-## Security notes (non-normative)
+## Format v1 — the signed manifest (CED-13)
+
+### Device identity
+
+Every device holds one **Ed25519 signing keypair** (libsodium
+`crypto_sign`, 32-byte public key, 64-byte secret key), generated on
+first use and **never synced**. Custody is implementation-defined
+behind a pluggable key store (the reference iOS app uses a
+device-bound Keychain item; see §Security notes). Identity IS the
+public key; names/roles are display metadata.
+
+Authority semantics in v1 are **single-user / multi-device**: every
+device in the trust list belongs to the vault owner, and possession of
+the gallery password is authorization. Roles are RECORDED for future
+use; multi-party authority (genesis attestation, escalation
+resistance, revocation, owner recovery) is deferred to the sharing
+legs, which will bump the format version.
+
+### Signed-object common form
+
+Every signed object is a **canonical byte encoding**: fixed field
+order, little-endian fixed-width integers, length-prefixed bounded
+blobs, canonical sort orders, duplicate rejection — exactly one byte
+representation per logical value; parsers MUST reject alternates.
+
+The detached Ed25519 signature covers:
+
+```
+domain ‖ sig_version u16 (=1) ‖ gallery_uuid(16) ‖ payload
+```
+
+where `domain` is the object kind's NUL-terminated ASCII domain
+separator and `payload` is the object's full canonical payload
+(every semantic field, epoch included where present). A signature is
+therefore bound to object kind, format version, and gallery — no
+cross-gallery or cross-kind replay. Stored form is always
+`payload ‖ signature(64)`.
+
+| Object kind     | Signing domain                   |
+| --------------- | -------------------------------- |
+| AddEntry        | `mobileseal.sig.add-entry.v1\0`  |
+| Tombstone       | `mobileseal.sig.tombstone.v1\0`  |
+| TrustList       | `mobileseal.sig.trust-list.v1\0` |
+| HEAD descriptor | `mobileseal.sig.head.v1\0`       |
+
+**Verification order is normative**: AEAD-decrypt the container →
+canonical parse (structural bounds, orders, duplicates) → verify
+signatures → trust checks. Each layer fails with its own typed error;
+signature failure MUST be distinguishable from AEAD failure.
+
+### AddEntry
+
+Payload (in order):
+
+| Field            | Type / len | Constraint                              |
+| ---------------- | ---------- | --------------------------------------- |
+| file_id          | 16 B UUID  | entry identity, unique within manifest  |
+| aad_file_id      | 16 B UUID  | v0 rule verbatim (dedup AAD context)    |
+| epoch            | u32        | keyring epoch of the chunks' DEK        |
+| chunk_size       | u32        | §Chunking bounds                        |
+| unpadded_length  | u64        | ≤ 2^48                                  |
+| dedup_hash       | 32 B       | v0 rule verbatim                        |
+| chunk_count      | u32        | = max(1, ceil(unpadded/chunk_size))     |
+| chunk_addresses  | 32 B each  | chunk_count entries                     |
+| metadata_length  | u32        | ≤ 1 MiB                                 |
+| metadata         | bytes      | opaque to VaultCore                     |
+| author_pubkey    | 32 B       | Ed25519 public key                      |
+| migrated_from_v0 | u8         | 0 or 1 (others rejected)                |
+
+An AddEntry is a **superset of the v0 inventory entry** — dedup-shared
+chunks, thumbnail/Live-Photo links (inside the opaque metadata), and
+readers keep working across migration. **Entry identity is
+`file_id`.**
+
+The **canonical entry digest** (tombstone targeting) is:
+
+```
+BLAKE2b-256("mobileseal.digest.add-entry.v1" ‖ 0x00 ‖ gallery_uuid ‖
+            payload ‖ signature)
+```
+
+### Tombstone
+
+Payload (in order): `target_file_id(16)` ‖ `has_target_digest u8
+(0|1)` ‖ `[target_digest(32) iff 1]` ‖ `author_pubkey(32)`.
+
+A tombstone **targets the durable `file_id`**, plus the canonical
+digest of the targeted AddEntry when the author knew it. Application
+rule (normative):
+
+- the author MUST be in the trust list (in v1's single-user semantics
+  every trusted device passes; the author-or-owner rule gains force
+  with sharing), AND
+- the target `file_id` MUST be present (a tombstone-before-add is
+  held **inert** — retained, reported, applied when the target
+  appears), AND
+- when a digest is present it MUST match the target's canonical
+  digest, EXCEPT when the target is `migrated_from_v0` — migration
+  duplicates are one logical entry across re-signings, so a digest
+  minted against one peer's re-signing applies to the surviving
+  representative.
+
+Any other case (unknown author, malformed/mismatched digest on a
+non-migrated entry) leaves the tombstone **inert and reported**, never
+an error. A suppressed entry's chunks remain in the CAS (space
+reclaim is the GC leg's).
+
+### TrustList
+
+Payload (in order): `list_version u64` ‖ `device_count u32 (1…1024)` ‖
+devices ‖ `signer_pubkey(32)`. Each device: `pubkey(32)` ‖
+`role u8 (1=owner, 2=member)` ‖ `added_at_unix_ms u64` ‖
+`name_len u16 (≤256)` ‖ `name (UTF-8)`. Devices MUST be sorted
+strictly ascending by public key bytes (duplicates impossible).
+
+The signer MUST itself be listed (self-signed trust root — **TOFU**,
+deliberately: gallery-password possession is authorization in v1).
+Genesis is minted at gallery creation/migration by the creating
+device (`list_version` 1, owner role). New devices self-register at
+their first write-capable unlock, folded into their next commit:
+`list_version` + 1, member role, **append-only device-set union** —
+v1 has no removal (revocation is a sharing-leg concern).
+
+Merge of same-pubkey records is field-wise deterministic: min role
+value (owner wins), min added_at, lexicographically smaller name.
+
+### Manifest object (`manifest/{hex}`)
+
+| Offset | Len | Field              | Constraint    |
+| ------ | --- | ------------------ | ------------- |
+| 0      | 8   | magic              | `MSVMANF1`    |
+| 8      | 2   | format_version u16 | 1             |
+| 10     | 24  | nonce              | random        |
+| 34     | …   | ciphertext         | body + 16 tag |
+
+AAD: `"mobileseal.manifest.v1" ‖ 0x00 ‖ gallery_uuid ‖ epoch u32 ‖
+format_version u16` (sealing keyring epoch, 0 today; epoch discovery
+as in v0). Maximum stored size 256 MiB.
+
+Decrypted body (in order):
+
+| Field           | Type     | Constraint                               |
+| --------------- | -------- | ---------------------------------------- |
+| local_revision  | u64      | LOCAL commit revision — see below        |
+| trust_list      | signed   | §TrustList (self-delimiting)             |
+| entry_count     | u32      | ≤ 1 000 000                              |
+| entries         | repeated | §AddEntry, sorted strictly ⬆ by file_id  |
+| tombstone_count | u32      | ≤ 1 000 000                              |
+| tombstones      | repeated | §Tombstone, sorted strictly ⬆ by bytes   |
+
+Trailing bytes are rejected. A manifest object is **one COMPLETE
+operation-set snapshot** — the trust list is embedded (not referenced
+by address) so the WAL commit's atomicity covers it and recovery
+never faces a dangling trust reference.
+
+**`local_revision` is the v0 generation counter's survivor**: +1 per
+committed local mutation, feeding snapshot streams and recovery's
+highest-revision rule. It is **NOT part of the CRDT** — never signed,
+never merged, never compared across devices, and peers MUST ignore it
+in any future exchange. Migration sets it to `v0 generation + 1` so
+v0 and v1 objects share one recovery axis.
+
+**Merge** (normative, for any two states of one gallery): entries
+merge by set union keyed on `file_id`; when the same `file_id`
+carries different signed bytes (possible ONLY via independent v0
+migrations — `file_id`s are minted once), the representative with the
+lexicographically **smallest canonical digest** survives, making
+merge commutative, associative, and idempotent. Tombstones merge by
+exact-canonical-bytes union. Trust lists merge as the device-set
+union (above) with `list_version = max`; the committing device
+re-signs the carrier.
+
+### HEAD (v1)
+
+Fixed 218 bytes:
+
+| Offset | Len | Field                | Constraint             |
+| ------ | --- | -------------------- | ---------------------- |
+| 0      | 8   | magic                | `MSVHEAD1`             |
+| 8      | 2   | format_version u16   | 1                      |
+| 10     | 32  | manifest_address     | plaintext (sealed plane resolves HEAD without the DEK) |
+| 42     | 24  | nonce                | random                 |
+| 66     | 152 | sealed descriptor    | 136 B plaintext + 16 B tag |
+
+Descriptor AAD: `"mobileseal.head.v1" ‖ 0x00 ‖ gallery_uuid ‖
+epoch u32 ‖ format_version u16`.
+
+Descriptor plaintext: `manifest_address(32)` ‖ `device_pubkey(32)` ‖
+`head_counter u64` ‖ `signature(64)` — the signature per the common
+form under the HEAD domain. The inner (signed) manifest address MUST
+equal the plaintext one; a mismatch is a signature-layer failure (a
+spliced HEAD). The device public key and counter — the rollback
+material — are never on disk in cleartext.
+
+`head_counter` is **per-device monotonic**: each device signs
+`counter + 1` relative to the highest counter it has itself written
+(or recorded). Writing HEAD is part of the v0 commit protocol
+unchanged; only the bytes differ.
+
+### Migration (v0 → v1)
+
+Triggered by unlocking a vault whose HEAD is v0. Idempotent state
+machine, order normative:
+
+1. Device key ensured (key store creation is idempotent).
+2. Trust-list genesis staged (creating device, owner, version 1).
+3. Manifest staged: every v0 entry re-signed by the migrating device
+   with `migrated_from_v0 = 1`, all v0 fields verbatim;
+   `local_revision = v0 generation + 1`; no tombstones.
+4. ONE WAL commit (manifest object + v1 HEAD) — the v0 object is
+   superseded exactly at the HEAD-swap commit point.
+5. Rollback high-water mark initialized (device-local).
+
+A crash before the commit point leaves the v0 world (re-running any
+prefix is a no-op); after it, the v1 world. Two devices independently
+migrating the same backed-up v0 vault converge under the migration
+equivalence rule (§Manifest merge).
+
+### Recovery (v1)
+
+- HEAD (v1) → present object: open, verify (order above), verify the
+  HEAD descriptor, check its signer is in the manifest's trust list,
+  run the rollback detector.
+- HEAD (v0) → present object: migration input (above).
+- HEAD missing/corrupt/dangling: scan `manifest/` for the
+  highest-local-revision valid object across BOTH formats (v1
+  manifest revision / v0 inventory generation — one axis); ties
+  prefer v1, then the lexicographically larger address. Repair HEAD:
+  in the v1 world the repairing device signs a fresh descriptor with
+  its own next counter (best-effort, like v0's repair).
+- HEAD → present object that fails AEAD: typed integrity error;
+  tampering is NOT silently rolled back (v0 rule, unchanged).
+
+### Rollback detection (honestly scoped)
+
+Each device keeps a **device-local high-water mark** per (gallery,
+signer): the highest `head_counter` it has observed from that signer.
+The store lives OUTSIDE the vault directory, beside the device
+identity, excluded from backup — so it neither rolls back with a
+restored vault nor follows the vault to a new device (where a fresh
+device rightly starts with no marks). The detector fires ONLY when a
+KNOWN signer presents a counter LOWER than its recorded mark; the
+embedder surfaces a "restored from an older backup?" acceptance flow
+whose acceptance re-baselines the mark **and records the acceptance**
+durably.
+
+What this does NOT detect (normative honesty): omission of individual
+CRDT elements inside a manifest, replay of another trusted signer's
+older HEAD on a device that never observed that signer, or a signer
+minting a higher counter over older content. Stronger detection
+(peer attestation) is the sync leg's.
+
+### Device migration / restore
+
+A vault restored to a new device (backup, transfer) arrives WITHOUT
+the old device's key (Keychain `ThisDeviceOnly`) and without
+device-local state. The new device enrolls as a NEW device via TOFU;
+old entries remain valid under the old public key forever; no
+recovery of the old identity is needed in single-user semantics.
+
+
 
 - **Secure memory**: the reference implementation keeps the DEK and
   all decrypted plaintext in `sodium_malloc` guarded allocations
@@ -317,3 +590,32 @@ Implementations MUST verify the AEAD tag on every chunk read (§intake
 - The sealed plane exposes chunk COUNT and SIZES (padded); tail
   padding to 64 KiB coarsens exact-length leakage; decoy-chunk
   bucketing is deferred to the cloud-sync leg.
+- **Device-key custody (v1, reference iOS app)**: the Ed25519 secret
+  key is a Keychain generic-password item
+  (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`) — device-bound
+  Keychain custody, NOT Secure-Enclave-resident (the SE cannot host
+  libsodium Ed25519). `ThisDeviceOnly` keeps it out of every backup:
+  a restored vault re-enrolls as a new device via TOFU. Exactly ONE
+  audited code point (`KeychainDeviceKeyStore`) moves raw key bytes
+  between the Keychain's `Data` and `SecureBytes`, zeroing the
+  intermediary both directions; `DeviceIdentity` exposes no secret
+  accessor (compile-fail-pinned). Residuals: the Security framework's
+  own transient copies during `SecItem` calls, and — as with all v1
+  signing — signature computation reads the key inside a bounded
+  closure. Simulator tests assert the item's attributes and API
+  behavior; device-bound/protection-class ENFORCEMENT is hardware
+  behavior on the HITL validation checklist.
+- **Device-local state locations (v1, reference iOS app)**: the
+  rollback high-water store
+  (`Application Support/DeviceLocal/rollback-state.json`) and the
+  soft-delete ledger
+  (`DeviceLocal/recently-deleted-{galleryUUID}.json`) live OUTSIDE
+  the vault root with `isExcludedFromBackup` set — deliberately: a
+  backed-up high-water mark would roll back with the vault it checks,
+  and a migrated one would false-fire on the new device. Neither file
+  is part of the cross-platform vault contract; they hold file IDs,
+  counters, and dates — never keys or plaintext.
+- **Soft delete is device-local in v1** ("delete for myself"): the
+  ledger above hides aggregates locally; only purge/expiry writes
+  CRDT tombstones. The per-user soft-delete merge algebra is designed
+  at the sync leg.
