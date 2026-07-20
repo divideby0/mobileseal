@@ -7,7 +7,6 @@ struct GalleryView: View {
 
     @State private var showPicker = false
     @State private var showSettings = false
-    @State private var selected: MediaItem?
 
     var body: some View {
         NavigationStack {
@@ -25,8 +24,8 @@ struct GalleryView: View {
                 } else {
                     PhotoGridView(
                         items: store.items,
+                        store: store,
                         pipeline: store.thumbnails,
-                        onSelect: { selected = $0 },
                         onScroll: { store.noteInteraction() }
                     )
                     .ignoresSafeArea(edges: .bottom)
@@ -121,9 +120,6 @@ struct GalleryView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(store: store)
-            }
-            .sheet(item: $selected) { item in
-                DetailView(item: item, store: store)
             }
             .sheet(
                 isPresented: Binding(

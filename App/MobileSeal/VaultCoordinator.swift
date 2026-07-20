@@ -76,8 +76,19 @@ protocol VaultUISink: AnyObject, Sendable {
     func itemsChanged(_ items: [MediaItem], report: IndexReport)
     /// Fresh reader per committed generation (Codex B4); nil on lock.
     func readerChanged(_ reader: ChunkReader?)
+    /// Fresh STREAMING reader per committed generation (CED-12 WS A);
+    /// nil on lock, and nil while no playback cache is attached.
+    func streamingReaderChanged(_ reader: StreamingReader?)
     func importProgressed(_ progress: ImportProgress?)
     func importFinished(_ summary: ImportSummary)
+}
+
+/// A participant in the coordinator's ONE lock path (CED-12 WS C.3):
+/// `prepareForLock()` runs to completion BEFORE the custodian drain —
+/// the playback controller uses it to fail loader requests, release
+/// players, and zeroize its cache, in that order.
+protocol VaultLockParticipant: Sendable {
+    func prepareForLock() async
 }
 
 /// SOLE owner of the move-only `UnlockSession` and its `Gallery` /
@@ -105,6 +116,14 @@ actor VaultCoordinator {
     private var sessionLive = false
     private var gallery: Gallery?
     private var galleryDirectory: URL?
+    /// Sealed-plane chunk provider for the unlocked vault (CED-12 WS
+    /// A.1); dropped on lock.
+    private var chunkProvider: LocalChunkStore?
+    /// Playback custody attachment (CED-12 WS C.3): the cache that
+    /// streaming readers decrypt into, plus the lock participant
+    /// swept before the custodian drain.
+    private var playbackCache: ResidentChunkCache?
+    private var lockParticipants: [any VaultLockParticipant] = []
     private var index = MediaIndex()
     private var latestSnapshot: InventorySnapshot?
     private var snapshotTask: Task<Void, Never>?
@@ -132,6 +151,17 @@ actor VaultCoordinator {
     func attach(sink: any VaultUISink) async {
         self.sink = sink
         await publishPhase()
+    }
+
+    /// Registers playback custody (CED-12 WS C.3): the controller's
+    /// cache receives every streaming reader's decrypts, and its
+    /// `prepareForLock` runs inside this coordinator's one lock path,
+    /// before the custodian drain.
+    func attachPlayback(
+        cache: ResidentChunkCache, participant: any VaultLockParticipant
+    ) {
+        playbackCache = cache
+        lockParticipants.append(participant)
     }
 
     // MARK: - Startup
@@ -223,6 +253,7 @@ actor VaultCoordinator {
         session = consume s
         sessionLive = true
         gallery = g
+        chunkProvider = vault.makeChunkProvider()
         index = MediaIndex()
         phase = .unlocked(importing: false)
         await publishPhase()
@@ -277,9 +308,19 @@ actor VaultCoordinator {
             orphanThumbnails: index.orphanThumbnails.count,
             missingThumbnails: index.missingThumbnails.count,
             undecodableEntries: index.undecodable.count)
+        // Streaming reader rides the same per-generation cadence,
+        // decrypting through the sealed-plane provider into the
+        // playback cache (CED-12 WS A).
+        var streamingReader: StreamingReader?
+        if let chunkProvider, let playbackCache {
+            streamingReader = await gallery.makeStreamingReader(
+                provider: chunkProvider, cache: playbackCache)
+        }
+        let streaming = streamingReader
         let sink = self.sink
         await MainActor.run {
             sink?.readerChanged(reader)
+            sink?.streamingReaderChanged(streaming)
             sink?.itemsChanged(items, report: report)
         }
     }
@@ -419,17 +460,26 @@ actor VaultCoordinator {
         phase = .locking
         await publishPhase()
 
+        // Playback custody unwinds FIRST (CED-12 WS C.3 ordering):
+        // loader requests fail, players release, cache zeroizes —
+        // all before the custodian drain below can start.
+        for participant in lockParticipants {
+            await participant.prepareForLock()
+        }
+
         importTask?.cancel()
         importTask = nil
         snapshotTask?.cancel()
         snapshotTask = nil
         gallery = nil
+        chunkProvider = nil
         index.purge()
         latestSnapshot = nil
 
         let sink = self.sink
         await MainActor.run {
             sink?.readerChanged(nil)
+            sink?.streamingReaderChanged(nil)
             sink?.itemsChanged([], report: IndexReport())
             sink?.importProgressed(nil)
         }

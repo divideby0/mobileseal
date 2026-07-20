@@ -51,6 +51,11 @@ public final class StreamingReader: Sendable {
         try entry(for: fileID).unpaddedLength
     }
 
+    /// Per-file chunk size (the loader's per-respond slice bound).
+    public func chunkSize(of fileID: FileID) throws -> UInt32 {
+        try entry(for: fileID).chunkSize
+    }
+
     /// Decrypt-count probe (benchmark + custody gates).
     public var decryptCount: Int { instrumentation.decryptCount }
 

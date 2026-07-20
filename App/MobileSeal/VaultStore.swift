@@ -21,6 +21,9 @@ final class VaultStore: VaultUISink {
     private let coordinatorContainer: AppContainer
     private let defaults: UserDefaults
     let thumbnails = ThumbnailPipeline()
+    /// Playback custody owner (CED-12 WS C.3) — registered with the
+    /// coordinator's lock path at bootstrap.
+    let playback = PlaybackController()
 
     private(set) var phase: VaultPhase = .starting
     private(set) var items: [MediaItem] = []
@@ -70,6 +73,8 @@ final class VaultStore: VaultUISink {
 
     func bootstrap() async {
         await coordinator.attach(sink: self)
+        await coordinator.attachPlayback(
+            cache: playback.cache, participant: playback)
         await thumbnails.setDamageHandler { [weak self] fileID in
             await self?.markDamaged(fileID)
         }
@@ -207,6 +212,9 @@ final class VaultStore: VaultUISink {
 
     func phaseChanged(_ phase: VaultPhase) {
         self.phase = phase
+        // The pager must not outlive the unlocked phase — its pages
+        // hold decoded plaintext imagery (CED-12 WS C.3).
+        if !phase.isUnlocked { MediaPagerPresenter.dismissActive() }
         if case .unlocked = phase { noteInteraction() }
         if phase == .locked {
             lockPending = false
@@ -238,6 +246,10 @@ final class VaultStore: VaultUISink {
 
     func readerChanged(_ reader: ChunkReader?) {
         Task { await thumbnails.setReader(reader) }
+    }
+
+    func streamingReaderChanged(_ reader: StreamingReader?) {
+        playback.setReader(reader)
     }
 
     func importProgressed(_ progress: ImportProgress?) {

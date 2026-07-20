@@ -31,6 +31,16 @@ struct PickerMediaProvider: MediaProvider, @unchecked Sendable {
         {
             return parts
         }
+        // Ordinary video (CED-12 WS B.3): the item's primary media is
+        // audiovisual — byte-exact copy-in, same as stills.
+        if let movieType = itemProvider.registeredTypeIdentifiers.first(where: {
+            UTType($0)?.conforms(to: .movie) == true
+        }) {
+            let url = try await loadFileCopy(
+                typeIdentifier: movieType, into: stagingDir,
+                preferredName: itemProvider.suggestedName)
+            return [StagedPart(url: url, role: .video, uti: movieType)]
+        }
         // Plain still: prefer the item's registered image type so HEIC
         // stays HEIC and ProRAW stays ProRAW (byte-exact originals).
         let imageType =
@@ -105,7 +115,9 @@ struct PhotoPicker: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var config = PHPickerConfiguration()
-        config.filter = .any(of: [.images, .livePhotos])
+        // Videos admitted since CED-12 (the playback leg); audio has
+        // no picker path — video-only is the grill Q4 scope.
+        config.filter = .any(of: [.images, .livePhotos, .videos])
         config.selectionLimit = 0  // unlimited; batch semantics own failure
         config.preferredAssetRepresentationMode = .current  // byte-exact
         let controller = PHPickerViewController(configuration: config)

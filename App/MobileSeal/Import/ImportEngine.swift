@@ -191,6 +191,11 @@ struct ImportEngine: Sendable {
         } catch {
             return fail(.providerFailed(String(describing: error)))
         }
+        // Video-primary item (CED-12 WS B.3): its own import tail.
+        if let primaryVideo = parts.first(where: { $0.role == .video }) {
+            return await importVideo(
+                primaryVideo, index: index, name: name, hashes: &hashes)
+        }
         guard let still = parts.first(where: { $0.role == .still }) else {
             return fail(.providerFailed("provider produced no still part"))
         }
@@ -302,6 +307,80 @@ struct ImportEngine: Sendable {
         }
 
         return ImportOutcome(index: index, name: name, status: .imported(originalID))
+    }
+
+    /// Ordinary-video import tail (CED-12 WS B.3): byte-exact
+    /// original + poster-frame thumbnail + duration in the v2
+    /// metadata blob. The unsupported-codec taxonomy (Codex A6): a
+    /// container whose DURATION parses is authentic media — it
+    /// imports successfully even when no poster can be decoded (the
+    /// grid shows no-preview; the pager shows "can't play this
+    /// format"); only an unreadable container fails the item.
+    private func importVideo(
+        _ part: StagedPart, index: Int, name: String?,
+        hashes: inout Set<String>
+    ) async -> ImportOutcome {
+        func fail(_ f: ImportFailure) -> ImportOutcome {
+            ImportOutcome(index: index, name: name, status: .failed(f))
+        }
+
+        let contentHash: String
+        do {
+            contentHash = try Self.sha256Hex(of: part.url)
+        } catch {
+            return fail(.providerFailed("hashing failed: \(error)"))
+        }
+        if hashes.contains(contentHash) {
+            return ImportOutcome(index: index, name: name, status: .skippedDuplicate)
+        }
+
+        let inspection: VideoPoster.Output
+        do {
+            inspection = try await VideoPoster.inspect(url: part.url)
+        } catch {
+            return fail(.undecodableMedia)
+        }
+
+        if Task.isCancelled {
+            return ImportOutcome(index: index, name: name, status: .notAttempted)
+        }
+
+        let now = Date()
+        var videoMeta = MediaMetadata(kind: .video, importedAt: now)
+        videoMeta.filename = name
+        videoMeta.uti = part.uti
+        videoMeta.contentHash = contentHash
+        videoMeta.durationSeconds = inspection.durationSeconds
+        videoMeta.pixelWidth = inspection.sourceWidth
+        videoMeta.pixelHeight = inspection.sourceHeight
+
+        let videoID: FileID
+        do {
+            videoID = try await gallery.importFile(
+                at: part.url, metadata: videoMeta.encoded())
+        } catch let error as VaultError {
+            return fail(error == .vaultLocked ? .vaultLocked : .vaultError("\(error)"))
+        } catch {
+            return fail(.vaultError("\(error)"))
+        }
+        hashes.insert(contentHash)
+
+        if let poster = inspection.posterJPEG {
+            var thumbMeta = MediaMetadata(kind: .thumbnail, importedAt: now)
+            thumbMeta.parent = videoID.description
+            thumbMeta.uti = "public.jpeg"
+            thumbMeta.pixelWidth = inspection.posterWidth
+            thumbMeta.pixelHeight = inspection.posterHeight
+            do {
+                _ = try await gallery.importBytes(poster, metadata: thumbMeta.encoded())
+            } catch let error as VaultError {
+                return fail(error == .vaultLocked ? .vaultLocked : .vaultError("\(error)"))
+            } catch {
+                return fail(.vaultError("\(error)"))
+            }
+        }
+
+        return ImportOutcome(index: index, name: name, status: .imported(videoID))
     }
 
     // MARK: - helpers

@@ -11,8 +11,8 @@ import VaultCore
 /// unlock-frozen session snapshot).
 struct PhotoGridView: UIViewRepresentable {
     var items: [MediaItem]
+    let store: VaultStore
     let pipeline: ThumbnailPipeline
-    var onSelect: (MediaItem) -> Void
     var onScroll: () -> Void
 
     func makeUIView(context: Context) -> UICollectionView {
@@ -59,6 +59,7 @@ struct PhotoGridView: UIViewRepresentable {
         var parent: PhotoGridView
         private var dataSource: UICollectionViewDiffableDataSource<Int, FileID>?
         private var itemsByID: [FileID: MediaItem] = [:]
+        private weak var collectionView: UICollectionView?
 
         init(parent: PhotoGridView) {
             self.parent = parent
@@ -78,6 +79,7 @@ struct PhotoGridView: UIViewRepresentable {
             }
             collectionView.delegate = self
             collectionView.prefetchDataSource = self
+            self.collectionView = collectionView
         }
 
         func apply(_ items: [MediaItem]) {
@@ -96,9 +98,27 @@ struct PhotoGridView: UIViewRepresentable {
         ) {
             collectionView.deselectItem(at: indexPath, animated: false)
             guard let id = dataSource?.itemIdentifier(for: indexPath),
-                let item = itemsByID[id]
+                let item = itemsByID[id],
+                let presenter = collectionView.topmostViewController
             else { return }
-            parent.onSelect(item)
+            parent.onScroll()  // selection counts as interaction
+            // Photos-lite pager (CED-12 WS C.1) over the CURRENT item
+            // list; the morph reads live tile frames so dismissing
+            // from a different page still lands on its tile.
+            let items = parent.items
+            guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+            MediaPagerPresenter.present(
+                store: parent.store, items: items, startIndex: index,
+                from: presenter,
+                sourceFrame: { [weak self, weak collectionView] fileID in
+                    guard let self, let collectionView,
+                        let indexPath = self.dataSource?.indexPath(for: fileID),
+                        let attributes = collectionView.layoutAttributesForItem(at: indexPath)
+                    else { return nil }
+                    let frame = collectionView.convert(attributes.frame, to: nil)
+                    // Off-screen tiles fall back to the fade morph.
+                    return collectionView.bounds.intersects(attributes.frame) ? frame : nil
+                })
         }
 
         // MARK: prefetch (Codex A3)
@@ -205,11 +225,26 @@ struct PhotoGridView: UIViewRepresentable {
     }
 }
 
+extension UIView {
+    /// The topmost view controller reachable from this view's window
+    /// — the pager's presentation anchor.
+    var topmostViewController: UIViewController? {
+        var top = window?.rootViewController
+        while let presented = top?.presentedViewController {
+            top = presented
+        }
+        return top
+    }
+}
+
 /// One grid cell: async thumbnail via the pipeline, cancelled on
 /// reuse; damage and no-preview badges per GOAL WS D.5.
 final class PhotoCell: UICollectionViewCell {
     private let imageView = UIImageView()
     private let badge = UIImageView()
+    /// Video duration badge (CED-12 gate 2: grid shows poster +
+    /// duration).
+    private let durationLabel = UILabel()
     private var loadTask: Task<Void, Never>?
     private var loadedID: FileID?
     private var pipeline: ThumbnailPipeline?
@@ -225,6 +260,13 @@ final class PhotoCell: UICollectionViewCell {
         badge.tintColor = .systemYellow
         badge.isHidden = true
         contentView.addSubview(badge)
+        durationLabel.translatesAutoresizingMaskIntoConstraints = false
+        durationLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        durationLabel.textColor = .white
+        durationLabel.shadowColor = .black
+        durationLabel.shadowOffset = CGSize(width: 0, height: 1)
+        durationLabel.isHidden = true
+        contentView.addSubview(durationLabel)
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
             imageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
@@ -234,6 +276,10 @@ final class PhotoCell: UICollectionViewCell {
             badge.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
             badge.widthAnchor.constraint(equalToConstant: 18),
             badge.heightAnchor.constraint(equalToConstant: 18),
+            durationLabel.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor, constant: 4),
+            durationLabel.bottomAnchor.constraint(
+                equalTo: contentView.bottomAnchor, constant: -4),
         ])
     }
 
@@ -252,12 +298,31 @@ final class PhotoCell: UICollectionViewCell {
         loadedID = nil
         imageView.image = nil
         badge.isHidden = true
+        durationLabel.isHidden = true
+    }
+
+    /// m:ss (or h:mm:ss) for the grid badge.
+    static func formatDuration(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s)
     }
 
     func configure(with item: MediaItem, pipeline: ThumbnailPipeline) {
         loadedID = item.id
         self.pipeline = pipeline
         accessibilityIdentifier = "photo-cell-\(item.id.description)"
+        if item.isVideo, let duration = item.durationSeconds {
+            durationLabel.text = Self.formatDuration(duration)
+            durationLabel.isHidden = false
+            durationLabel.accessibilityIdentifier = "video-duration-\(item.id.description)"
+        } else {
+            durationLabel.isHidden = true
+        }
         if item.damaged {
             badge.image = UIImage(systemName: "exclamationmark.triangle.fill")
             badge.isHidden = false
