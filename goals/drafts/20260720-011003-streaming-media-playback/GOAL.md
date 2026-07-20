@@ -58,16 +58,26 @@ Sized L. Grilling sharpens the gesture/policy questions below.
 
 ### Workstream C — pager + motion
 
-1. Swipe-to-advance pager between detail items with
-   neighbor-prefetch/decrypt inside the residency budget;
-   swipe-down-to-dismiss; zoom transitions. Exact gesture feel per
-   grill Q1.
-2. Live Photo motion: press-to-play the paired video (stored since
-   CED-11); device smoke test of the Live-Photo picker path (CED-11
+1. **Photos-lite pager** (grill Q1): hard-snap horizontal paging,
+   tile↔detail zoom morph on open/close, interactive
+   swipe-down-to-dismiss; zoom-carryover-between-items and
+   pinch-out-to-grid are deliberately skipped (later polish
+   candidate, on the map). Neighbor-prefetch/decrypt inside the
+   residency budget, prioritizing the next item's leading chunks
+   (autoplay depends on it).
+2. **Autoplay** (grill Q3/Q3b): landing on a video starts MUTED
+   looping playback immediately (Instagram model), tap toggles
+   sound; Live Photos auto-play their motion once on landing.
+   Device smoke test of the Live-Photo picker path (CED-11
    follow-up).
 3. Inline video player UI: play/pause/scrub/mute, AVPlayer wired to
    the loader delegate; lock mid-playback tears down cleanly (player
-   stops, buffers purge — gate-tested).
+   stops, buffers purge — gate-tested). **External playback ALLOWED**
+   (grill Q2 — "it's my TV"): `allowsExternalPlayback = true`;
+   screen RECORDING still blanks the player (`UIScreen.isCaptured`
+   shield). Video-only this leg (grill Q4 — PHPicker cannot import
+   audio; the loader is format-agnostic for a future Files-import
+   leg). Scrub-preview filmstrip deferred (grill Q5).
 
 ### Workstream D — benchmarks + chunk profile
 
@@ -112,21 +122,14 @@ Sized L. Grilling sharpens the gesture/policy questions below.
 - Full v0.1 spec: `goals/CED-10-private-photo-vault/references/intake.md`
   (§10 playback engine, §11 checklist).
 
-## Open questions (for grilling)
+## Decisions (grilling session 001 — all five questions resolved)
 
-1. Pager gesture set: Photos-style interactive zoom-transitions vs
-   Instagram-style hard-snap paging (Cedric's phrase was
-   "instagram-style swiping"; spec §10's bar is Photos-feel).
-2. AirPlay / external display / screen mirroring during playback:
-   decrypted frames leaving the device — block, allow, or
-   preference?
-3. Live Photo motion: in the pager this leg (recommended) or
-   deferred?
-4. Audio files (voice memos etc.): inline audio player this leg or
-   video-only?
-5. Scrub-preview filmstrip (Photos shows thumbnail strip while
-   scrubbing): this leg, later, or never (each preview frame is a
-   decrypt)?
+See `grilling/session-001-20260720-012500.md`. Q1 Photos-lite pager
+(snap + morph + interactive dismiss; full-Photos transitions =
+later polish) · Q2 external playback ALLOWED, screen-recording
+blanks · Q3 videos autoplay muted + tap-for-sound, loop; Live
+Photos auto-motion once · Q4 video-only (audio waits for a Files
+import) · Q5 filmstrip deferred.
 
 ## Executor notes (self-sufficiency)
 

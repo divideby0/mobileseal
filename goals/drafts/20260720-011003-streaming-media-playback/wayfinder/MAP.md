@@ -87,6 +87,13 @@ sharing, iPad, visionOS: beyond this map.
   tail padding; random nonces; Argon2id MODERATE default with
   calibrate-at-creation (device chose 512 MiB).
 
+- [Playback grilling, session 001](../grilling/session-001-20260720-012500.md)
+  — Photos-lite pager (snap + morph + interactive dismiss); videos
+  autoplay muted with tap-for-sound, Live Photos auto-motion once;
+  external playback ALLOWED (owner's TV) while screen-recording
+  blanks; video-only until a Files import exists; filmstrip
+  deferred.
+
 ## Not yet specified
 
 - `rewrapKeyring` core API — recalibrate KDF params after creation
@@ -101,6 +108,9 @@ sharing, iPad, visionOS: beyond this map.
 - CI leg — macOS + iOS-simulator lanes (`Scripts/run-gates.sh` is the
   shape), pinned-toolchain assertion, compile-fail harness.
 - CLI non-LAN role (always-on hub) — hangs on CLI grilling.
+- Pager polish candidates: full-Photos interactive transitions
+  (zoom carryover, pinch-to-grid), scrub-preview filmstrip —
+  promote only if daily use itches.
 - Smaller CED-11 residuals (fixtures out of Release bundle, provider
   size estimates, persisted metadata index, resume-prompt across
   locks) — indexed in its RESULT.md Follow-ups; promote to tickets
