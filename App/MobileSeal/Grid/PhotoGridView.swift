@@ -132,7 +132,15 @@ struct PhotoGridView: UIViewRepresentable {
         // view's accessibilityValue for the perf test to read, and an
         // os_signpost interval brackets each scroll for Instruments.
         private var displayLink: CADisplayLink?
-        private var lastFrameTimestamp: CFTimeInterval = 0
+        /// The previous callback's `targetTimestamp` — the moment the
+        /// NEXT frame was promised. Comparing the next callback's
+        /// actual timestamp against it measures LATENESS in a way
+        /// that tracks ProMotion's adaptive refresh rate; a naive
+        /// interval-vs-last-interval heuristic misreads every
+        /// legitimate cadence drop (120→80→40 Hz during
+        /// deceleration) as a hitch — the device spot-check reported
+        /// a 45% "hitch ratio" that way.
+        private var lastTargetTimestamp: CFTimeInterval = 0
         private var frameCount = 0
         private var hitchCount = 0
         private var maxGapMs = 0.0
@@ -148,7 +156,7 @@ struct PhotoGridView: UIViewRepresentable {
             // exactly one scroll interval — the perf test sums them
             // (wave-001 claude-code #3: cumulative counters inflated
             // the recorded numbers).
-            lastFrameTimestamp = 0
+            lastTargetTimestamp = 0
             frameCount = 0
             hitchCount = 0
             maxGapMs = 0
@@ -182,16 +190,17 @@ struct PhotoGridView: UIViewRepresentable {
         }
 
         @objc private func frame(_ link: CADisplayLink) {
-            if lastFrameTimestamp > 0 {
-                let gap = (link.timestamp - lastFrameTimestamp) * 1000
+            if lastTargetTimestamp > 0 {
+                // Lateness past the promised presentation time.
+                // On-time frames land at ≈0 regardless of the
+                // display's current adaptive rate; a hitch is a frame
+                // arriving more than one 120 Hz interval late.
+                let latenessMs = (link.timestamp - lastTargetTimestamp) * 1000
                 frameCount += 1
-                maxGapMs = max(maxGapMs, gap)
-                // Hitch: the frame arrived more than 1.5 refresh
-                // intervals after the previous one.
-                let expected = link.duration * 1000
-                if gap > expected * 1.5 { hitchCount += 1 }
+                maxGapMs = max(maxGapMs, max(0, latenessMs))
+                if latenessMs > 8.4 { hitchCount += 1 }
             }
-            lastFrameTimestamp = link.timestamp
+            lastTargetTimestamp = link.targetTimestamp
         }
     }
 }

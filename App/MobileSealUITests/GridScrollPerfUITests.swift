@@ -5,16 +5,20 @@ import XCTest
 /// thresholds stated here.
 ///
 /// Instrumentation: the grid runs a CADisplayLink while scrolling (in
-/// UI-test mode) and reports `frames`, `hitches` (frame gap > 1.5×
-/// refresh interval), and `maxGapMs` through its accessibility value;
-/// an os_signpost interval ("grid-scroll") brackets each scroll for
-/// Instruments sessions. Thresholds (stated per the gate):
+/// UI-test mode) and reports `frames`, `hitches` (a frame arriving
+/// > 8.4 ms — one 120 Hz interval — past its promised
+/// `targetTimestamp`; lateness-vs-target tracks ProMotion's adaptive
+/// refresh rate, which a naive interval heuristic misreads as
+/// hitching), and `maxGapMs` (worst lateness) through its
+/// accessibility value; an os_signpost interval ("grid-scroll")
+/// brackets each scroll for Instruments. Thresholds (stated per the
+/// gate):
 ///
 ///   - hitch ratio ≤ 10% of frames across the deceleration scrolls
 ///     (simulator rendering is not device rendering — Codex A7 — the
 ///     device spot-check in RESULT.md carries the real-hardware
 ///     number);
-///   - no single frame gap ≥ 250 ms (a visible stall).
+///   - no frame ≥ 250 ms late (a visible stall).
 final class GridScrollPerfUITests: XCTestCase {
     private let password = "perf vault password"
 
