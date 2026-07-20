@@ -135,6 +135,18 @@ public actor Gallery {
         return try inventory.entry(for: fileID).metadata
     }
 
+    /// Streaming range-read capability over the CURRENT inventory,
+    /// decrypting through `provider` into `cache` (CED-12 WS A).
+    /// Like `makeReader()`, per-generation: entries committed later
+    /// are invisible to this reader.
+    public func makeStreamingReader(
+        provider: any SealedChunkProvider, cache: ResidentChunkCache
+    ) -> StreamingReader {
+        StreamingReader(
+            galleryID: meta.galleryID, custodian: custodian,
+            entries: inventory.entries, provider: provider, cache: cache)
+    }
+
     // MARK: - Import
 
     /// Imports a file from disk, streaming it through a fixed secure

@@ -25,6 +25,9 @@ struct StagedPart: Sendable, Equatable {
         case still
         /// The paired Live Photo video (imported as a linked entry).
         case pairedVideo
+        /// An ordinary video as the item's PRIMARY media (CED-12 WS
+        /// B.3) — imported byte-exact with a poster-frame thumbnail.
+        case video
     }
 
     let url: URL

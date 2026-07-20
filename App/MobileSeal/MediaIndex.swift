@@ -17,6 +17,14 @@ struct MediaItem: Identifiable, Equatable, Sendable {
     var pixelWidth: Int?
     var pixelHeight: Int?
     var isLivePhotoStill: Bool
+    /// True for an ordinary imported video (CED-12): played through
+    /// the streaming path, badged with `durationSeconds` in the grid.
+    var isVideo: Bool = false
+    /// Duration for the grid badge (videos, v2 metadata). Pre-CED-12
+    /// paired Live-Photo videos have none stored; theirs derives
+    /// lazily at first open into `VaultStore.derivedDurations`
+    /// (Codex Q7 — session-scoped, purged on lock).
+    var durationSeconds: Double?
     /// Plaintext byte length of the original (from the structural
     /// snapshot — the reader API needs an explicit length for whole-
     /// file reads).
@@ -24,8 +32,11 @@ struct MediaItem: Identifiable, Equatable, Sendable {
     /// Thumbnail entry linked to this original, if one exists.
     var thumbnailID: FileID?
     var thumbnailByteLength: UInt64 = 0
-    /// Paired Live Photo video entry, if one exists.
+    /// Paired Live Photo video entry, if one exists (+ what the
+    /// streaming player needs to open it: length and UTI).
     var livePhotoVideoID: FileID?
+    var livePhotoVideoByteLength: UInt64 = 0
+    var livePhotoVideoUTI: String?
     /// Set when reads against this entry surfaced integrity errors
     /// (missingChunk / authenticationFailed) — per-item damaged badge,
     /// never silent (GOAL WS D.5).
@@ -60,9 +71,13 @@ struct MediaIndex: Sendable, Equatable {
         records[fileID]
     }
 
-    /// Content hashes of every known original (duplicate detection).
+    /// Content hashes of every known top-level entry — originals AND
+    /// videos (duplicate detection covers both).
     func originalContentHashes() -> Set<String> {
-        Set(records.values.filter { $0.kind == .original }.compactMap(\.contentHash))
+        Set(
+            records.values
+                .filter { $0.kind == .original || $0.kind == .video }
+                .compactMap(\.contentHash))
     }
 
     /// Merges metadata for `fileID` (idempotent).
@@ -80,10 +95,12 @@ struct MediaIndex: Sendable, Equatable {
 
     var isEmpty: Bool { records.isEmpty && undecodable.isEmpty }
 
-    /// True when an original with this plaintext hash already exists
-    /// (duplicate skip-with-notice, grill Q5).
+    /// True when a top-level entry with this plaintext hash already
+    /// exists (duplicate skip-with-notice, grill Q5).
     func containsOriginal(contentHash hash: String) -> Bool {
-        records.values.contains { $0.kind == .original && $0.contentHash == hash }
+        records.values.contains {
+            ($0.kind == .original || $0.kind == .video) && $0.contentHash == hash
+        }
     }
 
     /// Resolves links against the snapshot's live entry set and
@@ -98,16 +115,22 @@ struct MediaIndex: Sendable, Equatable {
         var orphans: Set<FileID> = []
         var missing: Set<FileID> = []
 
+        // Top-level (grid-visible) kinds: originals and ordinary
+        // videos (CED-12). Derived kinds link to either.
+        func isTopLevel(_ kind: MediaMetadata.Kind) -> Bool {
+            kind == .original || kind == .video
+        }
+
         for (id, meta) in records where live.contains(id) {
             guard let parent = meta.parentFileID else {
                 // A derived entry with a missing or unparseable parent
                 // link is as orphaned as it gets — report it, never
                 // silently drop it (wave-001 claude-code #9).
-                if meta.kind != .original { orphans.insert(id) }
+                if !isTopLevel(meta.kind) { orphans.insert(id) }
                 continue
             }
             let parentLive =
-                live.contains(parent) && records[parent]?.kind == .original
+                live.contains(parent) && records[parent].map { isTopLevel($0.kind) } == true
             switch meta.kind {
             case .thumbnail:
                 if parentLive {
@@ -117,15 +140,18 @@ struct MediaIndex: Sendable, Equatable {
                 }
             case .livePhotoVideo:
                 if parentLive { videoByParent[parent] = id }
-            case .original:
+            case .original, .video:
                 break
             }
         }
 
         var items: [MediaItem] = []
-        for (id, meta) in records where live.contains(id) && meta.kind == .original {
+        for (id, meta) in records where live.contains(id) && isTopLevel(meta.kind) {
             let thumb = thumbByParent[id]
-            if thumb == nil { missing.insert(id) }
+            // Poster-less videos are an accepted steady state (an
+            // undecodable-codec poster cannot be regenerated), so
+            // only STILLS report as regeneration candidates.
+            if thumb == nil && meta.kind == .original { missing.insert(id) }
             items.append(
                 MediaItem(
                     id: id,
@@ -137,10 +163,14 @@ struct MediaIndex: Sendable, Equatable {
                     pixelWidth: meta.pixelWidth,
                     pixelHeight: meta.pixelHeight,
                     isLivePhotoStill: meta.isLivePhotoStill ?? false,
+                    isVideo: meta.kind == .video,
+                    durationSeconds: meta.durationSeconds,
                     byteLength: lengths[id] ?? 0,
                     thumbnailID: thumb,
                     thumbnailByteLength: thumb.flatMap { lengths[$0] } ?? 0,
-                    livePhotoVideoID: videoByParent[id]))
+                    livePhotoVideoID: videoByParent[id],
+                    livePhotoVideoByteLength: videoByParent[id].flatMap { lengths[$0] } ?? 0,
+                    livePhotoVideoUTI: videoByParent[id].flatMap { records[$0]?.uti }))
         }
         orphanThumbnails = orphans
         missingThumbnails = missing

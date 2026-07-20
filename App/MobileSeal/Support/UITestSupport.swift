@@ -34,9 +34,12 @@ enum UITestSupport {
     }
 
     /// The committed fixture batch (bundled under Fixtures/): sorted
-    /// by name for deterministic ordering — mixed JPEG/HEIC, with the
-    /// deliberately corrupt member LAST so the forced per-item
-    /// failure lands after ≥100 successful imports (gate 2).
+    /// by name for deterministic ordering — mixed JPEG/HEIC, then the
+    /// video matrix (fast-start MP4, tail-moov MOV, unsupported-codec
+    /// MP4 — CED-12 gate 2), with the deliberately corrupt member
+    /// LAST so the forced per-item failure lands after every
+    /// successful import (a failure stops the batch). The first
+    /// healthy image carries the paired MOV as a Live Photo pair.
     static func fixtureBatchProviders() -> [any MediaProvider] {
         guard
             let fixturesURL = Bundle.main.resourceURL?.appendingPathComponent(
@@ -52,9 +55,25 @@ enum UITestSupport {
                 acc.1.append(url)
             }
         }
-        let ordered =
-            healthy.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            + corrupt.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        return ordered.map { FixtureMediaProvider(fixtureURL: $0) }
+        let pairedVideoURL = fixturesURL.appendingPathComponent("video-paired.mov")
+        let videos = files.filter {
+            ["mp4", "mov"].contains($0.pathExtension.lowercased())
+                && $0.lastPathComponent != pairedVideoURL.lastPathComponent
+        }
+        var providers: [any MediaProvider] = []
+        for (i, url) in healthy.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+            .enumerated()
+        {
+            var provider = FixtureMediaProvider(fixtureURL: url)
+            if i == 0, FileManager.default.fileExists(atPath: pairedVideoURL.path) {
+                provider.pairedVideoURL = pairedVideoURL
+            }
+            providers.append(provider)
+        }
+        providers += videos.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .map { FixtureMediaProvider(fixtureURL: $0) }
+        providers += corrupt.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .map { FixtureMediaProvider(fixtureURL: $0) }
+        return providers
     }
 }

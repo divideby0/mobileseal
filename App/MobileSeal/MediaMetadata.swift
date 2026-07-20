@@ -4,7 +4,7 @@ import VaultCore
 /// The app-level encrypted metadata blob attached to every vault entry
 /// (opaque bytes to VaultCore; AEAD-protected inside the inventory).
 ///
-/// Version 1 schema (JSON): kind + link model per GOAL WS B.3/B.4 —
+/// Version 2 schema (JSON): kind + link model per CED-11 WS B.3/B.4 —
 /// thumbnails and Live Photo videos are ordinary vault entries LINKED
 /// to their parent original via `parent`, never a separate cache.
 /// Full EXIF (including location) stays inside the original's bytes;
@@ -12,14 +12,32 @@ import VaultCore
 /// EXIF-derived capture date lifted out for the unlock-time sort index
 /// (WS C.2); `contentHash` (SHA-256 of the plaintext) powers the app's
 /// duplicate skip-with-notice (grill Q5).
+///
+/// v2 (CED-12 WS B.3, Codex Q7): backward-compatible OPTIONAL fields
+/// only — `kind: video` for ordinary imported videos and
+/// `durationSeconds` for the grid badge. v1 blobs decode unchanged
+/// (the new fields read nil); a v2 blob read by the v1 app is
+/// rejected by its `v == 1` check and surfaces as an opaque entry —
+/// visible, never crashing. Already-imported Live-Photo paired
+/// videos (v1, no duration) backfill duration LAZILY on first open:
+/// the streamed asset supplies it and `VaultStore.derivedDurations`
+/// caches it for the unlocked session — inventory metadata blobs are
+/// immutable, so nothing is ever rewritten.
 struct MediaMetadata: Codable, Equatable, Sendable {
+    /// Decodable schema ceiling: v1 and v2 blobs decode; anything
+    /// newer is opaque to this build.
+    static let currentVersion = 2
+
     enum Kind: String, Codable, Sendable {
         case original
         case thumbnail
         case livePhotoVideo
+        /// Ordinary imported video (CED-12 WS B.3) — a top-level grid
+        /// item like `original`, played through the streaming path.
+        case video
     }
 
-    var v: Int = 1
+    var v: Int = MediaMetadata.currentVersion
     var kind: Kind
     /// Parent original's FileID (thumbnail / livePhotoVideo only).
     var parent: String?
@@ -38,6 +56,8 @@ struct MediaMetadata: Codable, Equatable, Sendable {
     var pixelHeight: Int?
     /// True on an original that arrived as a Live Photo still.
     var isLivePhotoStill: Bool?
+    /// Media duration in seconds (videos only; v2+).
+    var durationSeconds: Double?
 
     static let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -63,7 +83,7 @@ struct MediaMetadata: Codable, Equatable, Sendable {
         guard let meta = try? decoder.decode(MediaMetadata.self, from: Data(bytes)) else {
             return nil
         }
-        guard meta.v == 1 else { return nil }
+        guard meta.v >= 1, meta.v <= Self.currentVersion else { return nil }
         return meta
     }
 

@@ -7,7 +7,6 @@ struct GalleryView: View {
 
     @State private var showPicker = false
     @State private var showSettings = false
-    @State private var selected: MediaItem?
 
     var body: some View {
         NavigationStack {
@@ -25,8 +24,8 @@ struct GalleryView: View {
                 } else {
                     PhotoGridView(
                         items: store.items,
+                        store: store,
                         pipeline: store.thumbnails,
-                        onSelect: { selected = $0 },
                         onScroll: { store.noteInteraction() }
                     )
                     .ignoresSafeArea(edges: .bottom)
@@ -101,14 +100,27 @@ struct GalleryView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if UITestSupport.isUITestMode {
-                    // Machine-readable item count: the perf test's
-                    // seed-completion signal (visible cell counts
-                    // cannot observe off-screen population).
-                    Text("\(store.items.count)")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .padding(4)
-                        .accessibilityIdentifier("item-count")
+                    VStack(alignment: .trailing, spacing: 2) {
+                        #if DEBUG
+                            // CED-12 gate 2's tampered-item leg:
+                            // damage the newest playable video on
+                            // disk. Compiled out of Release with its
+                            // backing primitives.
+                            Button("Tamper Video") {
+                                store.debugTamperNewestPlayableVideo()
+                            }
+                            .font(.caption2)
+                            .accessibilityIdentifier("tamper-video-button")
+                        #endif
+                        // Machine-readable item count: the perf test's
+                        // seed-completion signal (visible cell counts
+                        // cannot observe off-screen population).
+                        Text("\(store.items.count)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("item-count")
+                    }
+                    .padding(4)
                 }
             }
             .sheet(isPresented: $showPicker) {
@@ -121,9 +133,6 @@ struct GalleryView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(store: store)
-            }
-            .sheet(item: $selected) { item in
-                DetailView(item: item, store: store)
             }
             .sheet(
                 isPresented: Binding(

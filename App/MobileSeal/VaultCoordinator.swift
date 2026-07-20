@@ -76,8 +76,19 @@ protocol VaultUISink: AnyObject, Sendable {
     func itemsChanged(_ items: [MediaItem], report: IndexReport)
     /// Fresh reader per committed generation (Codex B4); nil on lock.
     func readerChanged(_ reader: ChunkReader?)
+    /// Fresh STREAMING reader per committed generation (CED-12 WS A);
+    /// nil on lock, and nil while no playback cache is attached.
+    func streamingReaderChanged(_ reader: StreamingReader?)
     func importProgressed(_ progress: ImportProgress?)
     func importFinished(_ summary: ImportSummary)
+}
+
+/// A participant in the coordinator's ONE lock path (CED-12 WS C.3):
+/// `prepareForLock()` runs to completion BEFORE the custodian drain —
+/// the playback controller uses it to fail loader requests, release
+/// players, and zeroize its cache, in that order.
+protocol VaultLockParticipant: Sendable {
+    func prepareForLock() async
 }
 
 /// SOLE owner of the move-only `UnlockSession` and its `Gallery` /
@@ -105,6 +116,14 @@ actor VaultCoordinator {
     private var sessionLive = false
     private var gallery: Gallery?
     private var galleryDirectory: URL?
+    /// Sealed-plane chunk provider for the unlocked vault (CED-12 WS
+    /// A.1); dropped on lock.
+    private var chunkProvider: LocalChunkStore?
+    /// Playback custody attachment (CED-12 WS C.3): the cache that
+    /// streaming readers decrypt into, plus the lock participant
+    /// swept before the custodian drain.
+    private var playbackCache: ResidentChunkCache?
+    private var lockParticipants: [any VaultLockParticipant] = []
     private var index = MediaIndex()
     private var latestSnapshot: InventorySnapshot?
     private var snapshotTask: Task<Void, Never>?
@@ -134,11 +153,28 @@ actor VaultCoordinator {
         await publishPhase()
     }
 
+    /// Registers playback custody (CED-12 WS C.3): the controller's
+    /// cache receives every streaming reader's decrypts, and its
+    /// `prepareForLock` runs inside this coordinator's one lock path,
+    /// before the custodian drain.
+    func attachPlayback(
+        cache: ResidentChunkCache, participant: any VaultLockParticipant
+    ) {
+        playbackCache = cache
+        lockParticipants.append(participant)
+    }
+
     // MARK: - Startup
 
     /// Launch: wipe staging (crash-path custody — gate 4), then route
-    /// to setup or unlock.
+    /// to setup or unlock. IDEMPOTENT — only the `.starting` phase may
+    /// route: SwiftUI re-runs the root `.task` when a full-screen
+    /// UIKit presentation detaches and re-attaches the hosting view,
+    /// and a second `start()` mid-session must not re-route an
+    /// unlocked vault to `.locked` (CED-12 pager gate found this
+    /// live).
     func start() async {
+        guard phase == .starting else { return }
         container.wipeStaging()
         if let dir = container.existingGalleryDirectory() {
             galleryDirectory = dir
@@ -223,6 +259,7 @@ actor VaultCoordinator {
         session = consume s
         sessionLive = true
         gallery = g
+        chunkProvider = vault.makeChunkProvider()
         index = MediaIndex()
         phase = .unlocked(importing: false)
         await publishPhase()
@@ -277,9 +314,19 @@ actor VaultCoordinator {
             orphanThumbnails: index.orphanThumbnails.count,
             missingThumbnails: index.missingThumbnails.count,
             undecodableEntries: index.undecodable.count)
+        // Streaming reader rides the same per-generation cadence,
+        // decrypting through the sealed-plane provider into the
+        // playback cache (CED-12 WS A).
+        var streamingReader: StreamingReader?
+        if let chunkProvider, let playbackCache {
+            streamingReader = await gallery.makeStreamingReader(
+                provider: chunkProvider, cache: playbackCache)
+        }
+        let streaming = streamingReader
         let sink = self.sink
         await MainActor.run {
             sink?.readerChanged(reader)
+            sink?.streamingReaderChanged(streaming)
             sink?.itemsChanged(items, report: report)
         }
     }
@@ -419,17 +466,26 @@ actor VaultCoordinator {
         phase = .locking
         await publishPhase()
 
+        // Playback custody unwinds FIRST (CED-12 WS C.3 ordering):
+        // loader requests fail, players release, cache zeroizes —
+        // all before the custodian drain below can start.
+        for participant in lockParticipants {
+            await participant.prepareForLock()
+        }
+
         importTask?.cancel()
         importTask = nil
         snapshotTask?.cancel()
         snapshotTask = nil
         gallery = nil
+        chunkProvider = nil
         index.purge()
         latestSnapshot = nil
 
         let sink = self.sink
         await MainActor.run {
             sink?.readerChanged(nil)
+            sink?.streamingReaderChanged(nil)
             sink?.itemsChanged([], report: IndexReport())
             sink?.importProgressed(nil)
         }
@@ -487,6 +543,27 @@ actor VaultCoordinator {
     /// The live Gallery actor (nil unless unlocked) — recovery tests
     /// commit crash-window states directly through it.
     func debugGallery() -> Gallery? { gallery }
+
+    #if DEBUG
+        /// UI-test seam (gate 2's tampered-item leg): flips one byte
+        /// in `fileID`'s first chunk ON DISK, so the next streamed
+        /// read surfaces the damaged-item state. Compiled out of
+        /// Release entirely — this primitive DAMAGES the user's CAS
+        /// (wave-001 claude-code #9).
+        func debugTamperFirstChunk(of fileID: FileID) {
+            guard let dir = galleryDirectory,
+                let entry = latestSnapshot?.files.first(where: { $0.fileID == fileID }),
+                let address = entry.chunkAddresses.first
+            else { return }
+            let url =
+                dir
+                .appendingPathComponent("chunks", isDirectory: true)
+                .appendingPathComponent(address.hex)
+            guard var bytes = try? Data(contentsOf: url), !bytes.isEmpty else { return }
+            bytes[bytes.count / 2] ^= 0xFF
+            try? bytes.write(to: url)
+        }
+    #endif
 
     /// Gate 5: after lock, no child survives — session consumed,
     /// gallery dropped, snapshot + import tasks cancelled and cleared,

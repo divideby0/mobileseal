@@ -7,13 +7,12 @@ workspace. Model/effort/args columns record per-reviewer provenance;
 
 All reviewers completed.
 
-
-| Tool | Outcome | Findings | Model | Effort | Args | Detail |
-|---|---|---|---|---|---|---|
-| claude-code | completed | [FINDINGS.md](claude-code/FINDINGS.md) | opus | high |  |  |
-| codex | completed | [FINDINGS.md](codex/FINDINGS.md) | (default) | (default) |  |  |
-| sonarqube | completed | [FINDINGS.md](sonarqube/FINDINGS.md) | (default) | (default) |  |  |
-| coderabbit | completed | [FINDINGS.md](coderabbit/FINDINGS.md) | (default) | (default) |  |  |
+| Tool        | Outcome   | Findings                               | Model     | Effort    | Args | Detail |
+| ----------- | --------- | -------------------------------------- | --------- | --------- | ---- | ------ |
+| claude-code | completed | [FINDINGS.md](claude-code/FINDINGS.md) | opus      | high      |      |        |
+| codex       | completed | [FINDINGS.md](codex/FINDINGS.md)       | (default) | (default) |      |        |
+| sonarqube   | completed | [FINDINGS.md](sonarqube/FINDINGS.md)   | (default) | (default) |      |        |
+| coderabbit  | completed | [FINDINGS.md](coderabbit/FINDINGS.md)  | (default) | (default) |      |        |
 
 ## Merged findings
 

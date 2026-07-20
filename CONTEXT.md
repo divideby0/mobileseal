@@ -52,6 +52,35 @@ portable crypto core) is the bounded context these terms belong to;
   content-addressed under `manifest/{hash}` with `HEAD` pointing at
   the current one. A local artifact: the Manifest-CRDT leg replaces it
   with durable signed entries.
+- **Sealed chunk provider** — the sealed-plane read seam
+  (`SealedChunkProvider`): fetches stored chunk objects by chunk
+  address, CAS-address-verified at the seam, no DEK involved. The
+  local CAS is today's only real implementation; a future sync leg
+  slots a remote fetch behind the same contract. Distinct from the
+  import-side `ChunkSource` (move-only plaintext ingestion).
+- **Streaming reader** — the plaintext-plane range reader
+  (`StreamingReader`): serves arbitrary byte ranges of an entry by
+  pulling sealed chunks through a provider and decrypting them into
+  the residency-budgeted cache. AEAD + padding verification live
+  here, never in a provider. Per-generation, like `ChunkReader`;
+  revoked by lock.
+- **Residency budget** — the cap on cache-owned decrypted chunk
+  bytes (`ResidentChunkCache`): entries pin while borrowed, eviction
+  zeroizes, misses coalesce, over-budget requests fail typed
+  (`budgetExhausted`) rather than block; memory pressure halves the
+  budget to a floor and recovery restores it. Response `Data`,
+  decoded frames, and AVFoundation-internal buffers are documented
+  residuals OUTSIDE the budget.
+- **Request registry** — the loader delegate's ledger of accepted
+  `AVAssetResourceLoadingRequest`s: each is served incrementally in
+  ≤ one-chunk slices from its `currentOffset` and finished exactly
+  once; cancellation unwinds the entry; the lock path fails every
+  outstanding request before the custodian drain.
+- **External-playback exemption** — the capture-shield truth table:
+  AirPlay external playback is ALLOWED (owner decision), and while
+  `isExternalPlaybackActive` the capture shield does not blank the
+  player surface; screen recording/mirroring (scene-capture trait)
+  blanks the LOCAL player whenever external playback is not active.
 
 ## Invariants worth remembering
 

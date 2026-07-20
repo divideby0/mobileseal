@@ -34,10 +34,14 @@ struct FixtureMediaProvider: MediaProvider {
             try await Task.sleep(for: .seconds(seconds))
         }
         var parts: [StagedPart] = []
-        let stillDest = stagingDir.appendingPathComponent(fixtureURL.lastPathComponent)
-        try FileManager.default.copyItem(at: fixtureURL, to: stillDest)
+        let primaryDest = stagingDir.appendingPathComponent(fixtureURL.lastPathComponent)
+        try FileManager.default.copyItem(at: fixtureURL, to: primaryDest)
+        let primaryRole: StagedPart.Role =
+            ["mov", "mp4", "m4v"].contains(fixtureURL.pathExtension.lowercased())
+            ? .video : .still
         parts.append(
-            StagedPart(url: stillDest, role: .still, uti: uti ?? Self.utiFor(fixtureURL)))
+            StagedPart(
+                url: primaryDest, role: primaryRole, uti: uti ?? Self.utiFor(fixtureURL)))
         if let pairedVideoURL {
             let videoDest = stagingDir.appendingPathComponent(pairedVideoURL.lastPathComponent)
             try FileManager.default.copyItem(at: pairedVideoURL, to: videoDest)
@@ -54,6 +58,7 @@ struct FixtureMediaProvider: MediaProvider {
         case "jpg", "jpeg": return "public.jpeg"
         case "png": return "public.png"
         case "mov": return "com.apple.quicktime-movie"
+        case "mp4", "m4v": return "public.mpeg-4"
         case "dng": return "com.adobe.raw-image"
         default: return "public.data"
         }

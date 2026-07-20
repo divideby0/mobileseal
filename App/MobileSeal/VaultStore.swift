@@ -21,6 +21,9 @@ final class VaultStore: VaultUISink {
     private let coordinatorContainer: AppContainer
     private let defaults: UserDefaults
     let thumbnails = ThumbnailPipeline()
+    /// Playback custody owner (CED-12 WS C.3) — registered with the
+    /// coordinator's lock path at bootstrap.
+    let playback = PlaybackController()
 
     private(set) var phase: VaultPhase = .starting
     private(set) var items: [MediaItem] = []
@@ -68,8 +71,17 @@ final class VaultStore: VaultUISink {
         self.lockPreferences = LockPreferences.load(from: defaults)
     }
 
+    /// One-shot: the root view's `.task` re-runs when a full-screen
+    /// UIKit presentation detaches the hosting view, and a second
+    /// bootstrap would double-register the playback lock participant.
+    private var bootstrapped = false
+
     func bootstrap() async {
+        guard !bootstrapped else { return }
+        bootstrapped = true
         await coordinator.attach(sink: self)
+        await coordinator.attachPlayback(
+            cache: playback.cache, participant: playback)
         await thumbnails.setDamageHandler { [weak self] fileID in
             await self?.markDamaged(fileID)
         }
@@ -99,6 +111,7 @@ final class VaultStore: VaultUISink {
         lastImportSummary = nil
         importProgress = nil
         regenerationAttempted = []
+        derivedDurations = [:]
         #if os(iOS) && !targetEnvironment(macCatalyst)
             let assertion = UIApplication.shared.beginBackgroundTask(withName: "vault-lock")
             Task {
@@ -207,6 +220,9 @@ final class VaultStore: VaultUISink {
 
     func phaseChanged(_ phase: VaultPhase) {
         self.phase = phase
+        // The pager must not outlive the unlocked phase — its pages
+        // hold decoded plaintext imagery (CED-12 WS C.3).
+        if !phase.isUnlocked { MediaPagerPresenter.dismissActive() }
         if case .unlocked = phase { noteInteraction() }
         if phase == .locked {
             lockPending = false
@@ -240,6 +256,10 @@ final class VaultStore: VaultUISink {
         Task { await thumbnails.setReader(reader) }
     }
 
+    func streamingReaderChanged(_ reader: StreamingReader?) {
+        playback.setReader(reader)
+    }
+
     func importProgressed(_ progress: ImportProgress?) {
         importProgress = progress
     }
@@ -264,4 +284,31 @@ final class VaultStore: VaultUISink {
         guard let i = items.firstIndex(where: { $0.id == fileID }) else { return }
         items[i].damaged = true
     }
+
+    // MARK: - Q7 duration backfill (session-scoped)
+
+    /// Durations derived lazily from streamed assets on first open —
+    /// the defined recovery for pre-CED-12 paired Live-Photo videos,
+    /// whose v1 metadata carries none (inventory blobs are immutable,
+    /// so the backfill is in-memory for the unlocked session only).
+    private(set) var derivedDurations: [FileID: Double] = [:]
+
+    func recordDerivedDuration(_ seconds: Double, for fileID: FileID) {
+        derivedDurations[fileID] = seconds
+    }
+
+    #if DEBUG
+        /// UI-test seam: tampers the newest PLAYABLE video's first
+        /// chunk on disk and purges the playback cache, so reopening
+        /// it streams the damaged bytes cold (gate 2's tampered-item
+        /// leg). DEBUG-only: this WRITES corrupted bytes into the CAS.
+        func debugTamperNewestPlayableVideo() {
+            guard let video = items.first(where: { $0.isVideo && $0.thumbnailID != nil })
+            else { return }
+            Task {
+                await coordinator.debugTamperFirstChunk(of: video.id)
+                await playback.cache.purge()
+            }
+        }
+    #endif
 }

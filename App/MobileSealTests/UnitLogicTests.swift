@@ -19,10 +19,28 @@ import VaultCore
 
     @Test func futureVersionAndGarbageDecodeToNil() throws {
         var meta = MediaMetadata(kind: .original, importedAt: Date())
-        meta.v = 2
+        meta.v = MediaMetadata.currentVersion + 1
         #expect(MediaMetadata.decode(try meta.encoded()) == nil)
         #expect(MediaMetadata.decode(Array("junk".utf8)) == nil)
         #expect(MediaMetadata.decode([]) == nil)
+    }
+
+    @Test func v1BlobsStillDecode() throws {
+        // Schema evolution rule (CED-12 WS B.3): v1 blobs — every
+        // pre-CED-12 entry — decode unchanged; the v2 fields read nil.
+        var meta = MediaMetadata(kind: .original, importedAt: Date(timeIntervalSince1970: 7))
+        meta.v = 1
+        let decoded = try #require(MediaMetadata.decode(try meta.encoded()))
+        #expect(decoded.v == 1)
+        #expect(decoded.durationSeconds == nil)
+    }
+
+    @Test func videoKindCarriesDuration() throws {
+        var meta = MediaMetadata(kind: .video, importedAt: Date(timeIntervalSince1970: 9))
+        meta.durationSeconds = 12.5
+        let decoded = try #require(MediaMetadata.decode(try meta.encoded()))
+        #expect(decoded.kind == .video)
+        #expect(decoded.durationSeconds == 12.5)
     }
 
     @Test func parentLinkParses() throws {

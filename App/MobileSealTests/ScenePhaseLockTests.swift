@@ -32,7 +32,10 @@ import VaultCore
             FixtureMediaProvider(fixtureURL: try TestSupport.fixtureURL("fixture-0040.jpg"))
         ])
         _ = await TestSupport.waitUntil { store.lastImportSummary != nil }
-        _ = await TestSupport.waitUntil { !store.items.isEmpty }
+        // Wait for the generation whose item carries the thumbnail
+        // LINK — the original commits one generation before its
+        // thumbnail, and the warm below needs the linked item.
+        _ = await TestSupport.waitUntil { store.items.first?.thumbnailID != nil }
 
         // Warm the decoded-image cache.
         let image = await store.thumbnails.image(for: store.items[0])
