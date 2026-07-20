@@ -100,14 +100,23 @@ struct GalleryView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if UITestSupport.isUITestMode {
-                    // Machine-readable item count: the perf test's
-                    // seed-completion signal (visible cell counts
-                    // cannot observe off-screen population).
-                    Text("\(store.items.count)")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .padding(4)
-                        .accessibilityIdentifier("item-count")
+                    VStack(alignment: .trailing, spacing: 2) {
+                        // CED-12 gate 2's tampered-item leg: damage
+                        // the newest playable video on disk.
+                        Button("Tamper Video") {
+                            store.debugTamperNewestPlayableVideo()
+                        }
+                        .font(.caption2)
+                        .accessibilityIdentifier("tamper-video-button")
+                        // Machine-readable item count: the perf test's
+                        // seed-completion signal (visible cell counts
+                        // cannot observe off-screen population).
+                        Text("\(store.items.count)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("item-count")
+                    }
+                    .padding(4)
                 }
             }
             .sheet(isPresented: $showPicker) {

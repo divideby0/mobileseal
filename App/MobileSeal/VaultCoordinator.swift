@@ -538,6 +538,24 @@ actor VaultCoordinator {
     /// commit crash-window states directly through it.
     func debugGallery() -> Gallery? { gallery }
 
+    /// UI-test seam (gate 2's tampered-item leg): flips one byte in
+    /// `fileID`'s first chunk ON DISK, so the next streamed read
+    /// surfaces the damaged-item state. Only reachable from the
+    /// Debug-only UI-test controls.
+    func debugTamperFirstChunk(of fileID: FileID) {
+        guard let dir = galleryDirectory,
+            let entry = latestSnapshot?.files.first(where: { $0.fileID == fileID }),
+            let address = entry.chunkAddresses.first
+        else { return }
+        let url =
+            dir
+            .appendingPathComponent("chunks", isDirectory: true)
+            .appendingPathComponent(address.hex)
+        guard var bytes = try? Data(contentsOf: url), !bytes.isEmpty else { return }
+        bytes[bytes.count / 2] ^= 0xFF
+        try? bytes.write(to: url)
+    }
+
     /// Gate 5: after lock, no child survives — session consumed,
     /// gallery dropped, snapshot + import tasks cancelled and cleared,
     /// index purged.

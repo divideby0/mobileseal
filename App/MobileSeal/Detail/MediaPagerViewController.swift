@@ -70,6 +70,50 @@ final class MediaPagerViewController: UIPageViewController {
             close.leadingAnchor.constraint(
                 equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
         ])
+
+        if UITestSupport.isUITestMode {
+            installPlaybackDebugOverlay()
+        }
+    }
+
+    // MARK: - UI-test instrumentation (gate 4: prefetch discipline)
+
+    private let debugLabel = UILabel()
+    private var debugTask: Task<Void, Never>?
+
+    /// Machine-readable playback counters for the fast-swipe gate:
+    /// `players=<n> requests=<n> cacheBytes=<n> budget=<n>`. Debug
+    /// UI-test mode only — Release has no reachable path here.
+    private func installPlaybackDebugOverlay() {
+        debugLabel.translatesAutoresizingMaskIntoConstraints = false
+        debugLabel.font = .monospacedSystemFont(ofSize: 9, weight: .regular)
+        debugLabel.textColor = .secondaryLabel
+        debugLabel.accessibilityIdentifier = "playback-debug"
+        view.addSubview(debugLabel)
+        NSLayoutConstraint.activate([
+            debugLabel.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            debugLabel.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+        ])
+        debugTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let players = self.store.playback.player == nil ? 0 : 1
+                let requests = self.store.playback.debugActiveRequestCount
+                let stats = await self.store.playback.debugCacheStats()
+                let line =
+                    "players=\(players) requests=\(requests) "
+                    + "cacheBytes=\(stats.residentBytes) budget=\(stats.budgetBytes)"
+                self.debugLabel.text = line
+                self.debugLabel.accessibilityValue = line
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+    }
+
+    deinit {
+        debugTask?.cancel()
     }
 
     override func viewDidAppear(_ animated: Bool) {

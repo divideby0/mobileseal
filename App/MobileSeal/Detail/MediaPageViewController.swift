@@ -162,6 +162,7 @@ final class MediaPageViewController: UIViewController {
         muteButton.configuration?.image = UIImage(systemName: "speaker.slash.fill")
         muteButton.configuration?.baseBackgroundColor = .black.withAlphaComponent(0.5)
         muteButton.accessibilityIdentifier = "mute-toggle"
+        muteButton.accessibilityValue = "muted"
         muteButton.addAction(
             UIAction { [weak self] _ in self?.toggleMute() }, for: .touchUpInside)
         view.addSubview(muteButton)
@@ -356,6 +357,7 @@ final class MediaPageViewController: UIViewController {
         player.isMuted.toggle()
         muteButton.configuration?.image = UIImage(
             systemName: player.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+        muteButton.accessibilityValue = player.isMuted ? "muted" : "unmuted"
         store.noteInteraction()
     }
 

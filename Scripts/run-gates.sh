@@ -1,5 +1,10 @@
 #!/bin/sh
-# CED-11 green-gate runner (gates 1-3 + the simulator halves of 4/5).
+# Green-gate runner (CED-11 gates + CED-12 playback gates: streaming
+# suites ride the unit half; the pager/prefetch gate is its own UI
+# run). The CED-12 chunk-profile benchmark is opt-in (it renders 30 s
+# videos and takes minutes):
+#   xcodebuild test … -only-testing:MobileSealTests/ChunkProfileBenchmarkTests \
+#     TEST_RUNNER_MOBILESEAL_BENCH=1
 # Prerequisite (one-time, admin): sudo xcodebuild -runFirstLaunch
 # and, if no iOS simulator runtime is installed yet:
 #   xcodebuild -downloadPlatform iOS
@@ -35,6 +40,12 @@ echo "== Gate 3: instrumented 500-photo scroll perf (UI) =="
 xcodebuild -project MobileSeal.xcodeproj -scheme MobileSeal \
   -destination "$DEST" \
   -only-testing:MobileSealUITests/GridScrollPerfUITests \
+  test
+
+echo "== CED-12 gate 4: pager prefetch discipline (UI) =="
+xcodebuild -project MobileSeal.xcodeproj -scheme MobileSeal \
+  -destination "$DEST" \
+  -only-testing:MobileSealUITests/PlaybackPagerUITests \
   test
 
 echo "All simulator gates passed."

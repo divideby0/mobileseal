@@ -25,6 +25,7 @@
 		40D8B18C634637A3271EF036 /* E2EFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE9F503E6682472637A1AD13 /* E2EFlowUITests.swift */; };
 		590439522BB814681D61BCF8 /* MobileSealApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E66753423B81BB89A61DEA9 /* MobileSealApp.swift */; };
 		5A4B58FB650C4AAE87A651FE /* VaultCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 038051DDECD28C69F50E27A4 /* VaultCoordinator.swift */; };
+		6286A9C89AC46C3D4FD333E3 /* ChunkProfileBenchmarkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B04F41CC10FD6847041A0F /* ChunkProfileBenchmarkTests.swift */; };
 		71228B2C599B6298C54AFF7E /* MediaPageViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19CB07BD47B14F1AD1B9CAEC /* MediaPageViewController.swift */; };
 		713544227F5136B8966D226B /* VaultStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 752F8BC370CBBB132D91682B /* VaultStore.swift */; };
 		7C669DEF034BFC1530AB0AAD /* ThumbnailPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E268FF455D79A6BDDACEAF3 /* ThumbnailPipeline.swift */; };
@@ -41,6 +42,7 @@
 		C98CA7C4DCB8F3CF2BA55706 /* MediaIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6FEB1930C5B2B9F7F2E79E8 /* MediaIndex.swift */; };
 		CE8ACAD5ACFE9D04F807CFD0 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 46C15C4E368621FCDE0FFABA /* Fixtures */; };
 		D15025A96FF148E02E89EB6F /* AppCustodyCanaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0E16F61A57818849442FD73 /* AppCustodyCanaryTests.swift */; };
+		D430C7ECB9EA947DC7863696 /* PlaybackPagerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70EC55FFBC42A16ADDB13753 /* PlaybackPagerUITests.swift */; };
 		D810B24F03D650CFDCA14E0D /* VaultCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0CFDEAAB9809F67C32B3285E /* VaultCore */; };
 		EB990A1594C20D3162A467D5 /* MediaProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BAF7765BEE02F7E4813E4EC /* MediaProvider.swift */; };
 		EB997C8B0D388C04A09F25F3 /* Thumbnailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8769B7CEA59E27D43837BEEC /* Thumbnailer.swift */; };
@@ -86,6 +88,7 @@
 		5E6F5D78B049AE27D50BF3EE /* ImportEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportEngine.swift; sourceTree = "<group>"; };
 		606A4B8729DE0D8F2EEACA61 /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
 		642A619D53D30EC680FC1605 /* MediaPagerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPagerViewController.swift; sourceTree = "<group>"; };
+		70EC55FFBC42A16ADDB13753 /* PlaybackPagerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackPagerUITests.swift; sourceTree = "<group>"; };
 		752F8BC370CBBB132D91682B /* VaultStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultStore.swift; sourceTree = "<group>"; };
 		7824833B39F6B5C3CAFE13D7 /* CoordinatorLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatorLifecycleTests.swift; sourceTree = "<group>"; };
 		8769B7CEA59E27D43837BEEC /* Thumbnailer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Thumbnailer.swift; sourceTree = "<group>"; };
@@ -102,6 +105,7 @@
 		CEC4FD59E43E781C9A6F44F2 /* ThumbnailRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailRecoveryTests.swift; sourceTree = "<group>"; };
 		D01F374D3176703C6E1B7648 /* PlaybackCustodyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackCustodyTests.swift; sourceTree = "<group>"; };
 		D0C8862F06BA77B97BEFB50A /* GridScrollPerfUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridScrollPerfUITests.swift; sourceTree = "<group>"; };
+		D2B04F41CC10FD6847041A0F /* ChunkProfileBenchmarkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChunkProfileBenchmarkTests.swift; sourceTree = "<group>"; };
 		D2DE2D85D0C485969616A544 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		D803939E28AC68A0098C62C0 /* UnlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnlockView.swift; sourceTree = "<group>"; };
 		DDFCCCBAB76961282022896E /* LockPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockPreferences.swift; sourceTree = "<group>"; };
@@ -147,6 +151,7 @@
 			children = (
 				FE9F503E6682472637A1AD13 /* E2EFlowUITests.swift */,
 				D0C8862F06BA77B97BEFB50A /* GridScrollPerfUITests.swift */,
+				70EC55FFBC42A16ADDB13753 /* PlaybackPagerUITests.swift */,
 			);
 			path = MobileSealUITests;
 			sourceTree = "<group>";
@@ -244,6 +249,7 @@
 			isa = PBXGroup;
 			children = (
 				A0E16F61A57818849442FD73 /* AppCustodyCanaryTests.swift */,
+				D2B04F41CC10FD6847041A0F /* ChunkProfileBenchmarkTests.swift */,
 				7824833B39F6B5C3CAFE13D7 /* CoordinatorLifecycleTests.swift */,
 				87B24410F9468AD33632FE65 /* DeviceBenchmarkTests.swift */,
 				C1DAEBBD38D88CF0D3BF252E /* ImportPipelineTests.swift */,
@@ -418,6 +424,7 @@
 			files = (
 				40D8B18C634637A3271EF036 /* E2EFlowUITests.swift in Sources */,
 				22817BC25964E9A50CE5B62B /* GridScrollPerfUITests.swift in Sources */,
+				D430C7ECB9EA947DC7863696 /* PlaybackPagerUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -458,6 +465,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D15025A96FF148E02E89EB6F /* AppCustodyCanaryTests.swift in Sources */,
+				6286A9C89AC46C3D4FD333E3 /* ChunkProfileBenchmarkTests.swift in Sources */,
 				7D44F01901C8F26704C2E9BF /* CoordinatorLifecycleTests.swift in Sources */,
 				065A2A38B13C361C90241D26 /* DeviceBenchmarkTests.swift in Sources */,
 				FAE28E94A6E31A203763BF68 /* ImportPipelineTests.swift in Sources */,

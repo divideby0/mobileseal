@@ -276,4 +276,16 @@ final class VaultStore: VaultUISink {
         guard let i = items.firstIndex(where: { $0.id == fileID }) else { return }
         items[i].damaged = true
     }
+
+    /// UI-test seam: tampers the newest PLAYABLE video's first chunk
+    /// on disk and purges the playback cache, so reopening it streams
+    /// the damaged bytes cold (gate 2's tampered-item leg).
+    func debugTamperNewestPlayableVideo() {
+        guard let video = items.first(where: { $0.isVideo && $0.thumbnailID != nil })
+        else { return }
+        Task {
+            await coordinator.debugTamperFirstChunk(of: video.id)
+            await playback.cache.purge()
+        }
+    }
 }

@@ -13,6 +13,17 @@ final class E2EFlowUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Polls `condition` (XCUIElement queries re-evaluate on read).
+    @discardableResult
+    private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return condition()
+    }
+
     private func launch(container: String, fresh: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
@@ -47,18 +58,20 @@ final class E2EFlowUITests: XCTestCase {
             "gallery (unlocked) never appeared after create")
         importFixtures.tap()
 
-        // 110 healthy + 1 corrupt (last): the batch takes a while on
-        // the simulator; the summary sheet marks completion.
+        // 110 healthy images (first carries the Live Photo pair) + 3
+        // videos (fast-start MP4, tail-moov MOV, unsupported-codec
+        // MP4) + 1 corrupt (last): the summary sheet marks completion.
         let summary = app.otherElements["import-summary"]
         let summaryShown = summary.waitForExistence(timeout: 600)
         XCTAssertTrue(summaryShown, "import summary never appeared")
 
         // Failure visible in the summary (forced per-item failure):
-        // 110 healthy imported, the corrupt last item failed.
+        // 113 imported (incl. both moov variants + the unsupported-
+        // but-authentic codec), the corrupt last item failed.
         let line = app.staticTexts["summary-line"]
         XCTAssertTrue(line.waitForExistence(timeout: 10))
         XCTAssertEqual(
-            line.label, "imported=110 skipped=0 failed=1 interrupted=false",
+            line.label, "imported=113 skipped=0 failed=1 interrupted=false",
             "batch summary mismatch")
         app.buttons["summary-done"].tap()
 
@@ -68,6 +81,84 @@ final class E2EFlowUITests: XCTestCase {
         XCTAssertTrue(
             app.cells.count > 0 || grid.descendants(matching: .any).count > 0,
             "grid rendered no cells")
+
+        // --- Videos show poster + DURATION in the grid (gate 2).
+        let durationBadge = app.staticTexts.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'video-duration-'")
+        ).firstMatch
+        XCTAssertTrue(
+            durationBadge.waitForExistence(timeout: 15),
+            "no video duration badge in the grid")
+
+        // Grid order is newest-import-first: [corrupt, unsupported,
+        // tail-moov, fast-start, images…].
+        // --- Unsupported-but-authentic codec: its OWN state, never
+        // the damaged badge (Codex A6).
+        grid.cells.element(boundBy: 1).tap()
+        let pager = app.otherElements["media-pager"]
+        XCTAssertTrue(pager.waitForExistence(timeout: 15), "pager never opened")
+        let state = app.staticTexts["playback-state"]
+        XCTAssertTrue(
+            state.waitForExistence(timeout: 20),
+            "unsupported-codec state never appeared")
+        XCTAssertTrue(
+            state.label.contains("Can't play"),
+            "expected can't-play copy, got: \(state.label)")
+        app.buttons["pager-close"].tap()
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+
+        // --- Autoplay muted on landing, tap unmutes, scrub to three
+        // positions (gate 2). Cell 2 = tail-moov MOV.
+        grid.cells.element(boundBy: 2).tap()
+        XCTAssertTrue(pager.waitForExistence(timeout: 15), "pager never opened on video")
+        let mute = app.buttons["mute-toggle"]
+        XCTAssertTrue(mute.waitForExistence(timeout: 20), "video chrome never appeared")
+        XCTAssertEqual(mute.value as? String, "muted", "autoplay must start muted")
+
+        // Autoplay is observable: the scrubber advances by itself.
+        let scrubber = app.sliders["video-scrubber"]
+        XCTAssertTrue(scrubber.waitForExistence(timeout: 10))
+        let initial = scrubber.normalizedSliderPosition
+        let advanced = waitUntil(timeout: 15) {
+            scrubber.normalizedSliderPosition > initial + 0.02
+        }
+        XCTAssertTrue(advanced, "scrubber never advanced — autoplay did not play")
+
+        // Tap toggles sound.
+        mute.tap()
+        XCTAssertEqual(mute.value as? String, "unmuted", "tap must unmute")
+
+        // Scrub to three positions; playback keeps presenting (the
+        // scrubber keeps advancing from each target).
+        for target in [0.8, 0.2, 0.5] {
+            scrubber.adjust(toNormalizedSliderPosition: target)
+            let position = scrubber.normalizedSliderPosition
+            XCTAssertTrue(
+                abs(position - target) < 0.3,
+                "scrub to \(target) landed at \(position)")
+            XCTAssertTrue(
+                waitUntil(timeout: 15) {
+                    scrubber.normalizedSliderPosition != position
+                }, "playback stalled after scrubbing to \(target)")
+        }
+        app.buttons["pager-close"].tap()
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
+
+        // --- Tampered item shows the DAMAGED state (distinct from
+        // the unsupported one). The tamper seam flips a byte in the
+        // newest playable video's first chunk and purges the cache.
+        app.buttons["tamper-video-button"].tap()
+        grid.cells.element(boundBy: 2).tap()
+        XCTAssertTrue(pager.waitForExistence(timeout: 15))
+        let damagedState = app.staticTexts["playback-state"]
+        XCTAssertTrue(
+            damagedState.waitForExistence(timeout: 20),
+            "damaged state never appeared for tampered video")
+        XCTAssertTrue(
+            damagedState.label.contains("damaged or missing"),
+            "expected damaged copy, got: \(damagedState.label)")
+        app.buttons["pager-close"].tap()
+        XCTAssertTrue(grid.waitForExistence(timeout: 10))
 
         // --- Relaunch (same container) → locked → unlock → restore.
         app.terminate()
