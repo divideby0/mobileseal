@@ -46,6 +46,18 @@ public enum VaultError: Error, Equatable, Hashable, Sendable {
     case addressMismatch(expected: ChunkAddress, actual: ChunkAddress)
     /// A chunk referenced by the inventory is absent from the CAS.
     case missingChunk(ChunkAddress)
+    /// A `SealedChunkProvider` could not produce the requested chunk.
+    /// `retryable` distinguishes not-yet-available (a future remote
+    /// source may succeed later) from permanently absent; the local
+    /// store only ever reports `retryable: false`. Retry/suspension
+    /// machinery is deliberately NOT built here — it belongs to the
+    /// sync leg that builds a real remote source (CED-12 A.1).
+    case chunkUnavailable(ChunkAddress, retryable: Bool)
+    /// The plaintext residency budget cannot admit a request: the
+    /// chunk is larger than the current budget, or every resident
+    /// entry is pinned and no space can be reclaimed. Requests fail
+    /// typed — they never block waiting for space (CED-12 A.2).
+    case budgetExhausted
     /// Tail-chunk padding failed validation (non-zero pad bytes, or a
     /// stored length inconsistent with chunk contents).
     case paddingInvalid
