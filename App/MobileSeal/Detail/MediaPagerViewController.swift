@@ -253,7 +253,7 @@ enum MediaPagerPresenter {
 
     static func present(
         store: VaultStore, items: [MediaItem], startIndex: Int,
-        from presenter: UIViewController,
+        anchor: UIView,
         sourceFrame: @escaping (FileID) -> CGRect?
     ) {
         let pager = MediaPagerViewController(
@@ -261,7 +261,29 @@ enum MediaPagerPresenter {
         pager.modalPresentationStyle = .fullScreen
         pager.transitioningDelegate = ZoomMorphTransition.shared
         active = pager
-        presenter.present(pager, animated: true)
+        attemptPresent(pager, anchor: anchor, retriesLeft: 8)
+    }
+
+    /// Presenting while another modal (the import-summary sheet) is
+    /// still dismissing silently fails in UIKit — re-derive the
+    /// topmost controller and retry briefly instead of dropping the
+    /// tap.
+    private static func attemptPresent(
+        _ pager: MediaPagerViewController, anchor: UIView, retriesLeft: Int
+    ) {
+        let presenter = anchor.topmostViewController
+        let midTransition =
+            presenter == nil
+            || presenter?.isBeingDismissed == true
+            || presenter?.isBeingPresented == true
+        if midTransition {
+            guard retriesLeft > 0 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                attemptPresent(pager, anchor: anchor, retriesLeft: retriesLeft - 1)
+            }
+            return
+        }
+        presenter?.present(pager, animated: true)
     }
 
     /// Lock path: the presented pager must not outlive the unlocked

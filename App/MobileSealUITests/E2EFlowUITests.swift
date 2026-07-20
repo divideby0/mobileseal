@@ -95,8 +95,10 @@ final class E2EFlowUITests: XCTestCase {
         // --- Unsupported-but-authentic codec: its OWN state, never
         // the damaged badge (Codex A6).
         grid.cells.element(boundBy: 1).tap()
-        let pager = app.otherElements["media-pager"]
-        XCTAssertTrue(pager.waitForExistence(timeout: 15), "pager never opened")
+        // The pager's container view is plain UIKit; anchor on its
+        // close button (buttons always surface to XCUITest).
+        let pagerClose = app.buttons["pager-close"]
+        XCTAssertTrue(pagerClose.waitForExistence(timeout: 15), "pager never opened")
         let state = app.staticTexts["playback-state"]
         XCTAssertTrue(
             state.waitForExistence(timeout: 20),
@@ -110,7 +112,7 @@ final class E2EFlowUITests: XCTestCase {
         // --- Autoplay muted on landing, tap unmutes, scrub to three
         // positions (gate 2). Cell 2 = tail-moov MOV.
         grid.cells.element(boundBy: 2).tap()
-        XCTAssertTrue(pager.waitForExistence(timeout: 15), "pager never opened on video")
+        XCTAssertTrue(pagerClose.waitForExistence(timeout: 15), "pager never opened on video")
         let mute = app.buttons["mute-toggle"]
         XCTAssertTrue(mute.waitForExistence(timeout: 20), "video chrome never appeared")
         XCTAssertEqual(mute.value as? String, "muted", "autoplay must start muted")
@@ -148,8 +150,12 @@ final class E2EFlowUITests: XCTestCase {
         // the unsupported one). The tamper seam flips a byte in the
         // newest playable video's first chunk and purges the cache.
         app.buttons["tamper-video-button"].tap()
+        // The tamper seam is async (coordinator hop + cache purge):
+        // give it a beat so the reopened stream reads the damaged
+        // bytes cold instead of a still-resident clean chunk.
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
         grid.cells.element(boundBy: 2).tap()
-        XCTAssertTrue(pager.waitForExistence(timeout: 15))
+        XCTAssertTrue(pagerClose.waitForExistence(timeout: 15))
         let damagedState = app.staticTexts["playback-state"]
         XCTAssertTrue(
             damagedState.waitForExistence(timeout: 20),

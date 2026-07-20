@@ -98,8 +98,7 @@ struct PhotoGridView: UIViewRepresentable {
         ) {
             collectionView.deselectItem(at: indexPath, animated: false)
             guard let id = dataSource?.itemIdentifier(for: indexPath),
-                let item = itemsByID[id],
-                let presenter = collectionView.topmostViewController
+                let item = itemsByID[id]
             else { return }
             parent.onScroll()  // selection counts as interaction
             // Photos-lite pager (CED-12 WS C.1) over the CURRENT item
@@ -109,7 +108,7 @@ struct PhotoGridView: UIViewRepresentable {
             guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
             MediaPagerPresenter.present(
                 store: parent.store, items: items, startIndex: index,
-                from: presenter,
+                anchor: collectionView,
                 sourceFrame: { [weak self, weak collectionView] fileID in
                     guard let self, let collectionView,
                         let indexPath = self.dataSource?.indexPath(for: fileID),

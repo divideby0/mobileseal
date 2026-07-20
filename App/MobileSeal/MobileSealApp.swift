@@ -78,10 +78,14 @@ struct ContentView: View {
             case .locked, .unlocking:
                 UnlockView(store: store)
             case .unlocked:
+                // No blanket SwiftUI TapGesture here: a simultaneous
+                // gesture over the UIViewRepresentable grid swallows
+                // UICollectionView cell selection (didSelectItemAt
+                // never fires — found by CED-12's pager gate; latent
+                // since CED-11, whose tests never tapped a cell).
+                // Interaction noting rides the grid's scroll/select
+                // callbacks instead.
                 GalleryView(store: store)
-                    .simultaneousGesture(
-                        TapGesture().onEnded { store.noteInteraction() }
-                    )
             case .locking:
                 ProgressView("Locking…")
             case .galleryError(let failure):

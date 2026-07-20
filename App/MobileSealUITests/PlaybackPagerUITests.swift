@@ -76,12 +76,12 @@ final class PlaybackPagerUITests: XCTestCase {
         let grid = app.collectionViews["photo-grid"]
         XCTAssertTrue(grid.waitForExistence(timeout: 30))
         grid.cells.element(boundBy: 0).tap()
-        let pager = app.otherElements["media-pager"]
-        XCTAssertTrue(pager.waitForExistence(timeout: 15), "pager never opened")
+        let pagerClose = app.buttons["pager-close"]
+        XCTAssertTrue(pagerClose.waitForExistence(timeout: 15), "pager never opened")
 
         // Eight rapid swipes with no settling time between them.
         for _ in 0..<8 {
-            pager.swipeLeft()
+            app.swipeLeft()
         }
 
         // Let the landed page settle, then assert the invariants.
@@ -106,7 +106,7 @@ final class PlaybackPagerUITests: XCTestCase {
         // Swipe back onto a video and confirm playback actually
         // activates for the LANDED item (players becomes 1).
         for _ in 0..<6 {
-            pager.swipeRight()
+            app.swipeRight()
         }
         let activated = waitUntil(timeout: 15) {
             (readCounters(app)?.players ?? 0) == 1
