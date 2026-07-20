@@ -101,13 +101,17 @@ struct GalleryView: View {
             .overlay(alignment: .bottomTrailing) {
                 if UITestSupport.isUITestMode {
                     VStack(alignment: .trailing, spacing: 2) {
-                        // CED-12 gate 2's tampered-item leg: damage
-                        // the newest playable video on disk.
-                        Button("Tamper Video") {
-                            store.debugTamperNewestPlayableVideo()
-                        }
-                        .font(.caption2)
-                        .accessibilityIdentifier("tamper-video-button")
+                        #if DEBUG
+                            // CED-12 gate 2's tampered-item leg:
+                            // damage the newest playable video on
+                            // disk. Compiled out of Release with its
+                            // backing primitives.
+                            Button("Tamper Video") {
+                                store.debugTamperNewestPlayableVideo()
+                            }
+                            .font(.caption2)
+                            .accessibilityIdentifier("tamper-video-button")
+                        #endif
                         // Machine-readable item count: the perf test's
                         // seed-completion signal (visible cell counts
                         // cannot observe off-screen population).

@@ -98,6 +98,27 @@ public final class StreamingReader: Sendable {
         return out
     }
 
+    /// Warms the cache with the chunks overlapping
+    /// `offset..<offset+length` WITHOUT materializing a plaintext
+    /// copy (wave-001: neighbor prefetch through `readRange` built a
+    /// throwaway ordinary-heap `Data` — pure residual for bytes
+    /// nobody reads). Same miss path, empty borrow.
+    public func warm(fileID: FileID, offset: UInt64, length: Int) async throws {
+        let e = try entry(for: fileID)
+        guard length > 0, offset <= e.unpaddedLength,
+            UInt64(length) <= e.unpaddedLength - offset
+        else {
+            throw VaultError.rangeOutOfBounds
+        }
+        let chunkSize = UInt64(e.chunkSize)
+        let firstChunk = offset / chunkSize
+        let lastChunk = (offset + UInt64(length) - 1) / chunkSize
+        for index in firstChunk...lastChunk {
+            try Task.checkCancellation()
+            try await withResidentChunk(e, index: index) { _, _ in () }
+        }
+    }
+
     /// Serves chunk `index` of `entry` from the cache, running the
     /// full miss path (provider fetch → seam address check → AEAD
     /// open → padding validation) when needed.

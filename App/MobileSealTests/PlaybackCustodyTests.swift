@@ -332,6 +332,57 @@ import VaultCore
             }, "tampered chunk never surfaced as integrity failure")
     }
 
+    // MARK: - still failure taxonomy (wave-001 codex #4)
+
+    /// The pager's still viewer must not regress DetailView's
+    /// integrity UX: integrity errors mark damaged; a transient
+    /// vaultLocked never does.
+    @Test func stillFailureClassifierMatchesDetailViewGuarantees() {
+        let missing = MediaPageViewController.stillFailureState(
+            for: .missingChunk(ChunkAddress(bytes: [UInt8](repeating: 7, count: 32))!))
+        #expect(missing.damaged)
+        #expect(missing.message.contains("missing"))
+
+        let tampered = MediaPageViewController.stillFailureState(
+            for: .authenticationFailed(.chunk))
+        #expect(tampered.damaged)
+        #expect(tampered.message.contains("integrity"))
+
+        let seamTamper = MediaPageViewController.stillFailureState(
+            for: .addressMismatch(
+                expected: ChunkAddress(bytes: [UInt8](repeating: 1, count: 32))!,
+                actual: ChunkAddress(bytes: [UInt8](repeating: 2, count: 32))!))
+        #expect(seamTamper.damaged)
+
+        let locked = MediaPageViewController.stillFailureState(for: .vaultLocked)
+        #expect(!locked.damaged)
+        #expect(locked.message.contains("locked"))
+    }
+
+    // MARK: - warm-task discipline (wave-001 convergence)
+
+    /// Neighbor warms are retained and CANCELLED by the next
+    /// activation/release/lock — the actual mechanism behind the
+    /// generation-token discipline.
+    @Test func warmTasksAreTrackedAndSweptByLock() async throws {
+        let fx = try await Fixture.create(
+            importing: ["video-faststart.mp4", "video-tailmoov.mov"])
+        defer { Task { await fx.destroy() } }
+        let neighbor = try fx.item(named: "video-tailmoov.mov")
+
+        fx.playback.warmNeighbor(
+            fileID: neighbor.id, byteLength: neighbor.byteLength)
+        #expect(fx.playback.debugWarmsStarted == 1)
+
+        // Lock sweeps in-flight warms (cancelled or already drained —
+        // either way none survive) and the counters stay honest.
+        await fx.vault.coordinator.lock()
+        #expect(await TestSupport.waitUntil { fx.vault.sink.phase == .locked })
+        #expect(fx.playback.debugInFlightWarmCount == 0)
+        let stats = await fx.playback.cache.stats
+        #expect(stats.residentBytes == 0)
+    }
+
     // MARK: - budget degradation (WS D.3)
 
     /// Under injected pressure the cache shrinks — and playback KEEPS

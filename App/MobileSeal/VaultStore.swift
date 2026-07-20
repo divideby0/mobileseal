@@ -111,6 +111,7 @@ final class VaultStore: VaultUISink {
         lastImportSummary = nil
         importProgress = nil
         regenerationAttempted = []
+        derivedDurations = [:]
         #if os(iOS) && !targetEnvironment(macCatalyst)
             let assertion = UIApplication.shared.beginBackgroundTask(withName: "vault-lock")
             Task {
@@ -284,15 +285,30 @@ final class VaultStore: VaultUISink {
         items[i].damaged = true
     }
 
-    /// UI-test seam: tampers the newest PLAYABLE video's first chunk
-    /// on disk and purges the playback cache, so reopening it streams
-    /// the damaged bytes cold (gate 2's tampered-item leg).
-    func debugTamperNewestPlayableVideo() {
-        guard let video = items.first(where: { $0.isVideo && $0.thumbnailID != nil })
-        else { return }
-        Task {
-            await coordinator.debugTamperFirstChunk(of: video.id)
-            await playback.cache.purge()
-        }
+    // MARK: - Q7 duration backfill (session-scoped)
+
+    /// Durations derived lazily from streamed assets on first open —
+    /// the defined recovery for pre-CED-12 paired Live-Photo videos,
+    /// whose v1 metadata carries none (inventory blobs are immutable,
+    /// so the backfill is in-memory for the unlocked session only).
+    private(set) var derivedDurations: [FileID: Double] = [:]
+
+    func recordDerivedDuration(_ seconds: Double, for fileID: FileID) {
+        derivedDurations[fileID] = seconds
     }
+
+    #if DEBUG
+        /// UI-test seam: tampers the newest PLAYABLE video's first
+        /// chunk on disk and purges the playback cache, so reopening
+        /// it streams the damaged bytes cold (gate 2's tampered-item
+        /// leg). DEBUG-only: this WRITES corrupted bytes into the CAS.
+        func debugTamperNewestPlayableVideo() {
+            guard let video = items.first(where: { $0.isVideo && $0.thumbnailID != nil })
+            else { return }
+            Task {
+                await coordinator.debugTamperFirstChunk(of: video.id)
+                await playback.cache.purge()
+            }
+        }
+    #endif
 }

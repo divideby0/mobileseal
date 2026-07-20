@@ -18,6 +18,10 @@ final class PlaybackPagerUITests: XCTestCase {
         let requests: Int
         let cacheBytes: Int
         let budget: Int
+        let activations: Int
+        let warms: Int
+        let warmsCancelled: Int
+        let warmsInFlight: Int
 
         init?(_ raw: String) {
             var values: [String: Int] = [:]
@@ -27,12 +31,18 @@ final class PlaybackPagerUITests: XCTestCase {
                 values[String(kv[0])] = v
             }
             guard let p = values["players"], let r = values["requests"],
-                let c = values["cacheBytes"], let b = values["budget"]
+                let c = values["cacheBytes"], let b = values["budget"],
+                let a = values["activations"], let w = values["warms"],
+                let wc = values["warmsCancelled"], let wf = values["warmsInFlight"]
             else { return nil }
             players = p
             requests = r
             cacheBytes = c
             budget = b
+            activations = a
+            warms = w
+            warmsCancelled = wc
+            warmsInFlight = wf
         }
     }
 
@@ -89,6 +99,7 @@ final class PlaybackPagerUITests: XCTestCase {
         XCTAssertTrue(debugLabel.waitForExistence(timeout: 10), "debug overlay missing")
         var worstPlayers = 0
         var worstOverBudget = false
+        var last: DebugCounters?
         let deadline = Date().addingTimeInterval(6)
         var samples = 0
         while Date() < deadline {
@@ -96,12 +107,33 @@ final class PlaybackPagerUITests: XCTestCase {
                 samples += 1
                 worstPlayers = max(worstPlayers, counters.players)
                 if counters.cacheBytes > counters.budget { worstOverBudget = true }
+                last = counters
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         }
         XCTAssertGreaterThan(samples, 0, "no counter samples read")
         XCTAssertLessThanOrEqual(worstPlayers, 1, "one-active-player violated")
         XCTAssertFalse(worstOverBudget, "cache bytes exceeded the residency budget")
+
+        // NON-tautological observables (wave-001 claude-code #5):
+        // player-item creations are bounded by landings — 8 swipes +
+        // the opening landing + settle slack — and stale warm work is
+        // actually CANCELLED (tracked tasks; in-flight drains).
+        let settled = try XCTUnwrap(last, "no final counter sample")
+        XCTAssertLessThanOrEqual(
+            settled.activations, 10,
+            "more player activations (\(settled.activations)) than landings — one-active-player discipline broken")
+        XCTAssertTrue(
+            waitUntil(timeout: 10) {
+                (readCounters(app)?.warmsInFlight ?? 99) == 0
+            }, "stale warm tasks never drained after the swipe burst")
+        // Warming actually ran during the burst. Whether any warm was
+        // CANCELLED here is timing-dependent (the tiny fixtures warm
+        // in milliseconds, so most complete before the next landing);
+        // the cancellation mechanism itself is pinned
+        // deterministically at unit level (warmAbandonsWhenCancelled,
+        // warmTasksAreTrackedAndSweptByLock).
+        XCTAssertGreaterThan(settled.warms, 0, "no neighbor warming ran during the burst")
 
         // Swipe back toward the head of the batch until a VIDEO page
         // lands and confirm playback activates for the landed item

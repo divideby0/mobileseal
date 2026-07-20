@@ -185,10 +185,23 @@ struct ChunkProfileBenchmarkTests {
             toleranceBefore: .zero, toleranceAfter: .zero)
         player.play()
         let deadline = start.advanced(by: .seconds(30))
+        var presented = false
         while ContinuousClock.now < deadline {
             let t = output.itemTime(forHostTime: CACurrentMediaTime())
-            if output.hasNewPixelBuffer(forItemTime: t) { break }
+            if output.hasNewPixelBuffer(forItemTime: t) {
+                presented = true
+                break
+            }
             try await Task.sleep(for: .milliseconds(2))
+        }
+        // A repetition that never presented is a FAILURE, not a
+        // ~30000 ms sample — a timeout entering the distribution
+        // could flip the predeclared rule for reasons unrelated to
+        // chunk size (wave-001 convergence: decision-grade means
+        // distinguishing "slow" from "never").
+        guard presented else {
+            throw TestError(
+                "no frame presented within 30 s at position \(position)s")
         }
         let elapsed = start.duration(to: ContinuousClock.now)
         player.pause()

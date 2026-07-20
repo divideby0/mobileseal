@@ -267,6 +267,47 @@ final class StreamingFixture: @unchecked Sendable {
         fx.finish()
     }
 
+    @Test func warmPopulatesCacheWithoutMaterializingPlaintext() async throws {
+        let fx = try await StreamingFixture(chunks: 3)
+        let (reader, cache) = try await fx.makeReader()
+        let cs = Int(testChunkSize)
+
+        // Warm the leading two chunks; the cache holds them and a
+        // subsequent read is decrypt-free.
+        try await reader.warm(fileID: fx.fileID, offset: 0, length: cs * 2)
+        let stats = await cache.stats
+        #expect(stats.entryCount == 2)
+        #expect(reader.decryptCount == 2)
+        _ = try await reader.readRange(fileID: fx.fileID, offset: 0, length: cs * 2)
+        #expect(reader.decryptCount == 2)
+        fx.finish()
+    }
+
+    @Test func warmAbandonsWhenCancelled() async throws {
+        // The prefetch discipline's cancellation mechanism: a warm
+        // task cancelled mid-fetch stops between chunks and populates
+        // nothing further (the pager's generation tokens cancel these
+        // tasks on every landing).
+        let fx = try await StreamingFixture(chunks: 4)
+        let fake = try FakeChunkProvider(copyingFrom: fx.vault)
+        fake.fetchDelayNanos = 50_000_000
+        let (reader, cache) = try await fx.makeReader(provider: fake)
+        let cs = Int(testChunkSize)
+
+        let warm = Task {
+            try await reader.warm(fileID: fx.fileID, offset: 0, length: cs * 4)
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+        warm.cancel()
+        await #expect(throws: (any Error).self) { try await warm.value }
+        // At most the chunk already in flight landed; the remaining
+        // three were never fetched.
+        #expect(fake.fetchCount <= 1)
+        let stats = await cache.stats
+        #expect(stats.entryCount <= 1)
+        fx.finish()
+    }
+
     @Test func cachedChunksServeRepeatReadsWithoutDecrypting() async throws {
         let fx = try await StreamingFixture(chunks: 3)
         let (reader, cache) = try await fx.makeReader()

@@ -36,10 +36,20 @@ final class PlaybackController: VaultLockParticipant {
     /// Prefetch generation token: bumped on every pager landing; a
     /// stale token's warm work is abandoned.
     private var prefetchGeneration = 0
+    /// In-flight neighbor warms, keyed by file — RETAINED so a new
+    /// landing/release/lock actually CANCELS them (wave-001
+    /// convergence: an untracked task cannot be cancelled, and a
+    /// before-only token check cancels nothing already started).
+    private var warmTasks: [FileID: Task<Void, Never>] = [:]
     /// How much leading media a neighbor warm may pull through the
     /// provider: one default chunk covers moov + first GOP for
     /// fast-start files without draining the budget.
     static let neighborWarmBytes = 4 << 20
+
+    // Gate-4 instrumentation (non-tautological observables).
+    private(set) var debugPlayerActivations = 0
+    private(set) var debugWarmsStarted = 0
+    private(set) var debugWarmsCancelled = 0
 
     private let pressureSource: DispatchSourceMemoryPressure
 
@@ -75,7 +85,8 @@ final class PlaybackController: VaultLockParticipant {
     ) -> AVPlayer? {
         guard let reader else { return nil }
         guard let chunkSize = try? reader.chunkSize(of: fileID) else { return nil }
-        prefetchGeneration += 1
+        invalidatePrefetch()
+        debugPlayerActivations += 1
 
         let delegate = VaultResourceLoaderDelegate(
             reader: reader, fileID: fileID, contentUTI: uti,
@@ -93,10 +104,12 @@ final class PlaybackController: VaultLockParticipant {
         return player
     }
 
-    /// Whether the CURRENT item's failure is vault damage (loader
-    /// integrity error) as opposed to an unsupported codec.
-    var activeItemSawIntegrityFailure: Bool {
-        delegates.last?.sawIntegrityFailure ?? false
+    /// Whether `fileID`'s playback failure was vault damage (loader
+    /// integrity error) as opposed to an unsupported codec. Keyed by
+    /// file, never "the newest delegate": a probe resolving after a
+    /// fast swipe must not read another item's registry (wave-001).
+    func sawIntegrityFailure(for fileID: FileID) -> Bool {
+        delegates.contains { $0.fileID == fileID && $0.sawIntegrityFailure }
     }
 
     /// Releases the active player (pager left the item / dismissed).
@@ -105,7 +118,19 @@ final class PlaybackController: VaultLockParticipant {
         player?.replaceCurrentItem(with: nil)
         player = nil
         activeItemID = nil
+        invalidatePrefetch()
+    }
+
+    /// Bumps the generation token and CANCELS every in-flight warm —
+    /// the actual cancellation mechanism behind the token discipline
+    /// (`StreamingReader` checks task cancellation between chunks).
+    private func invalidatePrefetch() {
         prefetchGeneration += 1
+        for (_, task) in warmTasks {
+            task.cancel()
+            debugWarmsCancelled += 1
+        }
+        warmTasks.removeAll()
     }
 
     private func pruneInactiveDelegates(keeping active: VaultResourceLoaderDelegate?) {
@@ -119,19 +144,26 @@ final class PlaybackController: VaultLockParticipant {
     // MARK: - neighbor warming (Codex A3)
 
     /// Warms a NEIGHBOR's leading ranges through the provider into
-    /// the cache — never a player item. Abandoned when the generation
-    /// token moves (fast swipe).
+    /// the cache — never a player item, never a plaintext copy
+    /// (`StreamingReader.warm` populates the budgeted cache with an
+    /// empty borrow). The task is RETAINED and cancelled by the next
+    /// landing, release, or lock; the token guards the not-yet-started
+    /// window.
     func warmNeighbor(fileID: FileID, byteLength: UInt64) {
-        guard let reader, byteLength > 0 else { return }
+        guard let reader, byteLength > 0, warmTasks[fileID] == nil else { return }
         let token = prefetchGeneration
         let length = Int(min(byteLength, UInt64(Self.neighborWarmBytes)))
-        Task { [weak self] in
-            // Stale-token check before AND after the read: a fast
-            // swipe invalidates warm work rather than letting it
-            // fight the landed item for budget.
+        debugWarmsStarted += 1
+        let task = Task { [weak self] in
             guard let self, await self.prefetchGeneration == token else { return }
-            _ = try? await reader.readRange(fileID: fileID, offset: 0, length: length)
+            try? await reader.warm(fileID: fileID, offset: 0, length: length)
+            await self.finishWarm(fileID)
         }
+        warmTasks[fileID] = task
+    }
+
+    private func finishWarm(_ fileID: FileID) {
+        warmTasks[fileID] = nil
     }
 
     // MARK: - lock path (VaultLockParticipant)
@@ -139,8 +171,9 @@ final class PlaybackController: VaultLockParticipant {
     /// The lock ordering's playback prefix (steps 1–3); the
     /// coordinator's custodian drain is step 4.
     func prepareForLock() async {
-        // 1. Fail all outstanding loader requests, refuse new ones.
-        prefetchGeneration += 1
+        // 1. Fail all outstanding loader requests, refuse new ones —
+        //    and cancel every in-flight warm.
+        invalidatePrefetch()
         for delegate in delegates {
             delegate.failAllRequests()
         }
@@ -160,6 +193,10 @@ final class PlaybackController: VaultLockParticipant {
 
     var debugActiveRequestCount: Int {
         delegates.reduce(0) { $0 + $1.activeRequestCount }
+    }
+
+    var debugInFlightWarmCount: Int {
+        warmTasks.count
     }
 
     func debugCacheStats() async -> ResidencyStats {

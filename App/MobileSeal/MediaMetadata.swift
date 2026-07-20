@@ -19,9 +19,10 @@ import VaultCore
 /// (the new fields read nil); a v2 blob read by the v1 app is
 /// rejected by its `v == 1` check and surfaces as an opaque entry —
 /// visible, never crashing. Already-imported Live-Photo paired
-/// videos (v1, no duration) backfill duration LAZILY in memory on
-/// first open — inventory metadata blobs are immutable, so the
-/// backfill is derived at open, never rewritten.
+/// videos (v1, no duration) backfill duration LAZILY on first open:
+/// the streamed asset supplies it and `VaultStore.derivedDurations`
+/// caches it for the unlocked session — inventory metadata blobs are
+/// immutable, so nothing is ever rewritten.
 struct MediaMetadata: Codable, Equatable, Sendable {
     /// Decodable schema ceiling: v1 and v2 blobs decode; anything
     /// newer is opaque to this build.

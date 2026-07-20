@@ -39,7 +39,10 @@ final class VaultResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate
     static let scheme = "vault"
 
     private let reader: StreamingReader
-    private let fileID: FileID
+    /// The entry this delegate streams — the controller keys
+    /// integrity queries by it (wave-001: `delegates.last` could read
+    /// a DIFFERENT page's delegate after a fast swipe).
+    let fileID: FileID
     private let contentUTI: String?
     private let contentLength: UInt64
     /// Per-respond slice bound: one chunk (the entry's own chunk
@@ -171,8 +174,13 @@ final class VaultResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate
             do {
                 let data = try await reader.readRange(
                     fileID: fileID, offset: UInt64(offset), length: Int(want))
-                if Task.isCancelled { return }
-                dataRequest.respond(with: data)
+                // Respond only while the request is still OURS: the
+                // lock sweep (`failAllRequests`) removes the entry
+                // and finishes the request from another thread, and
+                // responding to a finished request is AVFoundation
+                // misuse — the registry lock makes the two mutually
+                // exclusive.
+                guard respondIfLive(loadingRequest, dataRequest, data) else { return }
             } catch is CancellationError {
                 return
             } catch let error as VaultError {
@@ -185,6 +193,20 @@ final class VaultResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate
             }
         }
         finish(loadingRequest, error: nil)
+    }
+
+    /// Delivers a slice while holding the registry lock, but only if
+    /// the request is still registered (not cancelled, not swept).
+    private func respondIfLive(
+        _ loadingRequest: AVAssetResourceLoadingRequest,
+        _ dataRequest: AVAssetResourceLoadingDataRequest,
+        _ data: Data
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard registry[ObjectIdentifier(loadingRequest)] != nil else { return false }
+        dataRequest.respond(with: data)
+        return true
     }
 
     /// Exactly-once completion: only a request still in the registry

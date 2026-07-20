@@ -43,6 +43,9 @@ final class MediaPageViewController: UIViewController {
 
     // Live Photo motion-once.
     private var motionPlayed = false
+    /// The entry the attached player actually streams — item.id for
+    /// videos, livePhotoVideoID for motion.
+    private var playedFileID: FileID?
 
     init(item: MediaItem, store: VaultStore) {
         self.item = item
@@ -105,7 +108,14 @@ final class MediaPageViewController: UIViewController {
         }
 
         if item.isVideo {
-            installVideoChrome()
+            installVideoControls()
+        }
+        // The capture cover guards EVERY page that can attach a
+        // player — ordinary videos AND Live Photo motion (wave-001
+        // convergence: motion played unshielded because the cover
+        // only existed on video pages).
+        if item.isVideo || item.livePhotoVideoID != nil {
+            installCaptureCover()
         }
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
@@ -139,25 +149,75 @@ final class MediaPageViewController: UIViewController {
     // MARK: - stills
 
     private func decodeFullStill() async {
-        guard item.byteLength > 0, item.byteLength <= 256 << 20,
+        guard item.byteLength > 0,
             let reader = await store.thumbnails.currentReader()
         else { return }
+        guard item.byteLength <= 256 << 20 else {
+            // The CED-11 viewer ceiling, stated honestly (streaming
+            // still decode is map fog).
+            showState(
+                "This original is larger than the viewer's memory budget "
+                    + "for this release. The stored bytes are intact.")
+            return
+        }
         let fileID = item.id
         let length = item.byteLength
-        let decoded: UIImage? = await Task.detached(priority: .userInitiated) {
-            guard
-                let data = try? VaultCoordinator.decryptWhole(
+        let result: Result<UIImage?, VaultError> = await Task.detached(
+            priority: .userInitiated
+        ) {
+            do {
+                let data = try VaultCoordinator.decryptWhole(
                     fileID: fileID, length: length, reader: reader)
-            else { return nil }
-            return StillDecoder.decode(data: data)
+                return .success(StillDecoder.decode(data: data))
+            } catch let error as VaultError {
+                return .failure(error)
+            } catch {
+                return .failure(.ioFailure(operation: "read", path: ""))
+            }
         }.value
-        guard !Task.isCancelled, let decoded else { return }
-        imageView.image = decoded
+        guard !Task.isCancelled else { return }
+        switch result {
+        case .success(let decoded?):
+            imageView.image = decoded
+        case .success(nil):
+            showState("The original could not be decoded. The stored bytes are intact.")
+        case .failure(let error):
+            // Integrity failures mark the item damaged — the pager
+            // must not silently regress DetailView's guarantee
+            // (wave-001 codex #4).
+            let state = Self.stillFailureState(for: error)
+            if state.damaged {
+                store.markDamaged(item.id)
+                view.accessibilityValue = "damaged"
+            }
+            showState(state.message)
+        }
+    }
+
+    /// Pure classifier for still read failures (unit-tested).
+    static func stillFailureState(for error: VaultError) -> (message: String, damaged: Bool) {
+        switch error {
+        case .missingChunk, .chunkUnavailable:
+            return (
+                "Part of this photo's encrypted data is missing from the vault. "
+                    + "The rest of your library is unaffected.", true
+            )
+        case .authenticationFailed, .addressMismatch, .paddingInvalid, .lengthMismatch:
+            return (
+                "This photo's encrypted data failed its integrity check — it may "
+                    + "have been corrupted or tampered with. The rest of your "
+                    + "library is unaffected.", true
+            )
+        case .vaultLocked:
+            return ("The vault locked while loading.", false)
+        default:
+            return ("Reading failed: \(String(describing: error))", false)
+        }
     }
 
     // MARK: - video
 
-    private func installVideoChrome() {
+    private func installVideoControls() {
         muteButton.translatesAutoresizingMaskIntoConstraints = false
         muteButton.configuration?.image = UIImage(systemName: "speaker.slash.fill")
         muteButton.configuration?.baseBackgroundColor = .black.withAlphaComponent(0.5)
@@ -173,6 +233,23 @@ final class MediaPageViewController: UIViewController {
             UIAction { [weak self] _ in self?.scrubberMoved() }, for: .valueChanged)
         view.addSubview(scrubber)
 
+        NSLayoutConstraint.activate([
+            muteButton.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            muteButton.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            scrubber.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            scrubber.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+            scrubber.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+        ])
+    }
+
+    /// Cover + scene-capture trait observation, for any page whose
+    /// content can reach an AVPlayerLayer.
+    private func installCaptureCover() {
         captureCover.backgroundColor = .black
         captureCover.isHidden = true
         captureCover.accessibilityIdentifier = "capture-cover"
@@ -187,16 +264,6 @@ final class MediaPageViewController: UIViewController {
         view.addSubview(captureCover)
 
         NSLayoutConstraint.activate([
-            muteButton.trailingAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            muteButton.topAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            scrubber.leadingAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            scrubber.trailingAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            scrubber.bottomAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
             coverLabel.centerXAnchor.constraint(equalTo: captureCover.centerXAnchor),
             coverLabel.centerYAnchor.constraint(equalTo: captureCover.centerYAnchor),
             coverLabel.leadingAnchor.constraint(
@@ -225,6 +292,7 @@ final class MediaPageViewController: UIViewController {
             showState("The vault is locked.")
             return
         }
+        playedFileID = item.id
         attach(player: player, muted: true, looping: true)
         player.play()
     }
@@ -239,6 +307,7 @@ final class MediaPageViewController: UIViewController {
                 byteLength: item.livePhotoVideoByteLength)
         else { return }
         motionPlayed = true
+        playedFileID = videoID
         attach(player: player, muted: true, looping: false)
         player.play()
     }
@@ -258,8 +327,8 @@ final class MediaPageViewController: UIViewController {
         view.bringSubviewToFront(muteButton)
         view.bringSubviewToFront(scrubber)
 
-        if let item = player.currentItem {
-            statusObservation = item.observe(\.status) { [weak self] observed, _ in
+        if let playerItem = player.currentItem {
+            statusObservation = playerItem.observe(\.status) { [weak self] observed, _ in
                 Task { @MainActor in
                     guard let self else { return }
                     if observed.status == .failed {
@@ -270,11 +339,26 @@ final class MediaPageViewController: UIViewController {
             // An unsupported codec never fails the item's status — it
             // just reports unplayable (Codex A6): probe explicitly so
             // "can't play this format" actually shows.
-            let asset = item.asset
+            let asset = playerItem.asset
             Task { [weak self] in
                 let playable = (try? await asset.load(.isPlayable)) ?? true
                 if !playable {
                     self?.showPlaybackFailure()
+                }
+            }
+            // Q7 duration backfill, lazily on first open: pre-CED-12
+            // paired Live-Photo videos carry no stored duration — the
+            // streamed asset supplies it and the store caches it for
+            // the unlocked session (in-memory only; inventory
+            // metadata blobs are immutable).
+            if let playedID = playedFileID, !item.isVideo {
+                Task { [weak self] in
+                    if let duration = try? await asset.load(.duration),
+                        duration.seconds.isFinite, duration.seconds > 0
+                    {
+                        self?.store.recordDerivedDuration(
+                            duration.seconds, for: playedID)
+                    }
                 }
             }
         }
@@ -372,7 +456,13 @@ final class MediaPageViewController: UIViewController {
     // MARK: - failure states (Codex A6)
 
     private func showPlaybackFailure() {
-        if store.playback.activeItemSawIntegrityFailure {
+        // Only the page whose player is still ACTIVE may mutate item
+        // state: a probe resolving after a fast swipe must not stamp
+        // badges from another page's context (wave-001).
+        guard let playedFileID,
+            store.playback.activeItemID == playedFileID
+        else { return }
+        if store.playback.sawIntegrityFailure(for: playedFileID) {
             store.markDamaged(item.id)
             showState(
                 "Part of this video's encrypted data is damaged or missing. "

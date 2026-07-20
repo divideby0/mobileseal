@@ -191,6 +191,22 @@ struct ImportEngine: Sendable {
         } catch {
             return fail(.providerFailed(String(describing: error)))
         }
+        // Low-disk post-stage check for EVERY media role — videos are
+        // the largest admitted type and must not bypass the 2× policy
+        // (wave-001 codex #3): batch estimate = observed mean item
+        // size × items remaining; refuse below 2× estimate.
+        let itemBytes = parts.reduce(Int64(0)) { $0 + (Self.fileSize(of: $1.url) ?? 0) }
+        observedItemBytes.append(itemBytes)
+        let meanBytes = observedItemBytes.reduce(0, +) / Int64(observedItemBytes.count)
+        let estimate = max(itemBytes, meanBytes * Int64(remaining))
+        if let available = Self.availableCapacity(at: container.stagingDir),
+            available < estimate * Self.lowDiskFactor
+        {
+            return fail(
+                .lowDiskSpace(
+                    requiredBytes: estimate * Self.lowDiskFactor, availableBytes: available))
+        }
+
         // Video-primary item (CED-12 WS B.3): its own import tail.
         if let primaryVideo = parts.first(where: { $0.role == .video }) {
             return await importVideo(
@@ -214,20 +230,6 @@ struct ImportEngine: Sendable {
         }
         if hashes.contains(contentHash) {
             return ImportOutcome(index: index, name: name, status: .skippedDuplicate)
-        }
-
-        // Low-disk pre-flight (GOAL WS B.6): batch estimate = observed
-        // mean item size × items remaining; refuse below 2× estimate.
-        let itemBytes = parts.reduce(Int64(0)) { $0 + (Self.fileSize(of: $1.url) ?? 0) }
-        observedItemBytes.append(itemBytes)
-        let meanBytes = observedItemBytes.reduce(0, +) / Int64(observedItemBytes.count)
-        let estimate = max(itemBytes, meanBytes * Int64(remaining))
-        if let available = Self.availableCapacity(at: container.stagingDir),
-            available < estimate * Self.lowDiskFactor
-        {
-            return fail(
-                .lowDiskSpace(
-                    requiredBytes: estimate * Self.lowDiskFactor, availableBytes: available))
         }
 
         if Task.isCancelled {

@@ -22,7 +22,8 @@ struct MediaItem: Identifiable, Equatable, Sendable {
     var isVideo: Bool = false
     /// Duration for the grid badge (videos, v2 metadata). Pre-CED-12
     /// paired Live-Photo videos have none stored; theirs derives
-    /// lazily at open (Codex Q7).
+    /// lazily at first open into `VaultStore.derivedDurations`
+    /// (Codex Q7 — session-scoped, purged on lock).
     var durationSeconds: Double?
     /// Plaintext byte length of the original (from the structural
     /// snapshot — the reader API needs an explicit length for whole-

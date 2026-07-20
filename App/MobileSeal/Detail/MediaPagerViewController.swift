@@ -99,12 +99,22 @@ final class MediaPagerViewController: UIPageViewController {
         debugTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let players = self.store.playback.player == nil ? 0 : 1
-                let requests = self.store.playback.debugActiveRequestCount
-                let stats = await self.store.playback.debugCacheStats()
+                let playback = self.store.playback
+                let players = playback.player == nil ? 0 : 1
+                let requests = playback.debugActiveRequestCount
+                let stats = await playback.debugCacheStats()
+                // activations/warms make the gate NON-tautological:
+                // player-item creations and warm-task cancellations
+                // can actually exceed their bounds when the
+                // one-active-player or token discipline breaks
+                // (wave-001 claude-code #5).
                 let line =
                     "players=\(players) requests=\(requests) "
-                    + "cacheBytes=\(stats.residentBytes) budget=\(stats.budgetBytes)"
+                    + "cacheBytes=\(stats.residentBytes) budget=\(stats.budgetBytes) "
+                    + "activations=\(playback.debugPlayerActivations) "
+                    + "warms=\(playback.debugWarmsStarted) "
+                    + "warmsCancelled=\(playback.debugWarmsCancelled) "
+                    + "warmsInFlight=\(playback.debugInFlightWarmCount)"
                 self.debugLabel.text = line
                 self.debugLabel.accessibilityValue = line
                 try? await Task.sleep(for: .milliseconds(250))
