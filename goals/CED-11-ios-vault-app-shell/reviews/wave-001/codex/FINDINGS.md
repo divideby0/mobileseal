@@ -2,16 +2,16 @@
 
 The change establishes a substantial app shell and exercises much of the intended flow, but it is not ready to accept as implemented: the privacy shield and grace-lock transition can expose gallery content, app-owned plaintext is not completely purged on lock, the detail viewer's claimed memory bound does not bound the dominant allocations, and the required thumbnail-recovery path is never wired into normal unlock. The low-disk check also happens too late to be a preflight, while cell-reuse cancellation and benchmark recording fall short of their stated gates. I could not complete `swift test` or the unsigned Xcode build because this review environment rejects SwiftPM's nested `sandbox-exec` even after caches were redirected to `/tmp`; those were environmental failures and are not counted as findings.
 
-| # | Severity | Location | Finding |
-|---|---|---|---|
-| 1 | major | `App/MobileSeal/VaultStore.swift:109` | Returning after an expired grace period removes the shield before the asynchronous lock starts, briefly exposing an unlocked gallery. |
-| 2 | major | `App/MobileSeal/UI/SettingsView.swift:101`, `App/MobileSeal/MobileSealApp.swift:95` | The privacy shield is translucent and animated, so it does not guarantee redaction before the system snapshot. |
-| 3 | major | `App/MobileSeal/VaultStore.swift:79`, `App/MobileSeal/Detail/DetailView.swift:56` | Lock does not purge all app-owned plaintext: import filenames remain retained and detached detail decoding can outlive lock. |
-| 4 | major | `App/MobileSeal/VaultCoordinator.swift:349`, `App/MobileSeal/Detail/StillDecoder.swift:14` | The detail viewer's 64 MiB claim only bounds the decoded bitmap; it reads and copies the entire original first, leaving total memory unbounded. |
-| 5 | major | `App/MobileSeal/VaultStore.swift:88`, `App/MobileSeal/VaultCoordinator.swift:275` | Missing-thumbnail regeneration and orphan reporting exist only as disconnected internals, so the required on-open recovery behavior never happens in the app. |
-| 6 | minor | `App/MobileSeal/Grid/PhotoGridView.swift:215`, `App/MobileSeal/Grid/ThumbnailPipeline.swift:70` | Cell reuse cancels only the waiting UI task, not the underlying decrypt/decode task. |
-| 7 | major | `App/MobileSeal/Import/ImportEngine.swift:161` | The low-disk "preflight" runs only after provider bytes have already been copied into staging. |
-| 8 | minor | `App/MobileSeal/Support/KDFCalibrator.swift:35` | The calibration record omits the required peak-memory measurement. |
+| #   | Severity | Location                                                                                        | Finding                                                                                                                                                       |
+| --- | -------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | major    | `App/MobileSeal/VaultStore.swift:109`                                                           | Returning after an expired grace period removes the shield before the asynchronous lock starts, briefly exposing an unlocked gallery.                         |
+| 2   | major    | `App/MobileSeal/UI/SettingsView.swift:101`, `App/MobileSeal/MobileSealApp.swift:95`             | The privacy shield is translucent and animated, so it does not guarantee redaction before the system snapshot.                                                |
+| 3   | major    | `App/MobileSeal/VaultStore.swift:79`, `App/MobileSeal/Detail/DetailView.swift:56`               | Lock does not purge all app-owned plaintext: import filenames remain retained and detached detail decoding can outlive lock.                                  |
+| 4   | major    | `App/MobileSeal/VaultCoordinator.swift:349`, `App/MobileSeal/Detail/StillDecoder.swift:14`      | The detail viewer's 64 MiB claim only bounds the decoded bitmap; it reads and copies the entire original first, leaving total memory unbounded.               |
+| 5   | major    | `App/MobileSeal/VaultStore.swift:88`, `App/MobileSeal/VaultCoordinator.swift:275`               | Missing-thumbnail regeneration and orphan reporting exist only as disconnected internals, so the required on-open recovery behavior never happens in the app. |
+| 6   | minor    | `App/MobileSeal/Grid/PhotoGridView.swift:215`, `App/MobileSeal/Grid/ThumbnailPipeline.swift:70` | Cell reuse cancels only the waiting UI task, not the underlying decrypt/decode task.                                                                          |
+| 7   | major    | `App/MobileSeal/Import/ImportEngine.swift:161`                                                  | The low-disk "preflight" runs only after provider bytes have already been copied into staging.                                                                |
+| 8   | minor    | `App/MobileSeal/Support/KDFCalibrator.swift:35`                                                 | The calibration record omits the required peak-memory measurement.                                                                                            |
 
 ## 1. Grace return unshields before locking
 

@@ -79,7 +79,7 @@ Commits, in order:
 - Xcode 26.0.1's first-launch packages were absent on this machine —
   EVERY `xcodebuild` invocation died (CoreSimulator plugin load), even
   generic-destination builds. Cedric ran `sudo xcodebuild
-  -runFirstLaunch` mid-goal; the iOS 26.0.1 simulator runtime then
+-runFirstLaunch` mid-goal; the iOS 26.0.1 simulator runtime then
   needed `xcodebuild -downloadPlatform iOS` (8 GB) — the first,
   interrupted download left a corrupt runtime image
   (`simctl runtime verify` −67068) that had to be deleted and
@@ -150,14 +150,15 @@ in `9014ddb`.
 
 `AppCustodyCanaryTests`: a canary-marked JPEG imported through the
 real pipeline; a recursive byte-scan of the app container (vault root
-+ galleries + staging) finds ZERO plaintext outside staging's
-documented lifecycle — after import completion, after cancellation
-(lock mid-batch), and after a simulated-crash relaunch (stranded
-staging plaintext wiped by the launch sweep). The canary round-trips
-byte-exact through the session plane. Backup policy: nothing under
-the vault root is `isExcludedFromBackup`; staging IS excluded.
-Audited-path claim and simulator Data-Protection gap documented in
-the test (Codex A7/B12 pattern).
+
+- galleries + staging) finds ZERO plaintext outside staging's
+  documented lifecycle — after import completion, after cancellation
+  (lock mid-batch), and after a simulated-crash relaunch (stranded
+  staging plaintext wiped by the launch sweep). The canary round-trips
+  byte-exact through the session plane. Backup policy: nothing under
+  the vault root is `isExcludedFromBackup`; staging IS excluded.
+  Audited-path claim and simulator Data-Protection gap documented in
+  the test (Codex A7/B12 pattern).
 
 ## Gate 5 — lock behavior
 
@@ -179,15 +180,15 @@ Run as `DeviceBenchmarkTests/deviceCalibration` on **Cedric's iPhone
 17 Pro Max (iPhone18,2), iOS 26.6 (23G5057c)** — the full
 calibrate-at-creation protocol on real hardware, 2026-07-20:
 
-| measure | value |
-| --- | --- |
-| Chosen parameters | **3 ops / 512 MiB** (calibration raised above MODERATE) |
-| Median unlock, 3 ops / 256 MiB (MODERATE) | 0.301 s |
-| Median unlock, 3 ops / 512 MiB (chosen, verified) | **0.632 s** — inside the 0.5–1.0 s envelope |
-| Thermal state | nominal |
-| Free memory before run | 3353 MiB (≥ 2× the 512 MiB pick) |
-| Peak process footprint during run | 535 MiB |
-| Build | debug test host |
+| measure                                           | value                                                   |
+| ------------------------------------------------- | ------------------------------------------------------- |
+| Chosen parameters                                 | **3 ops / 512 MiB** (calibration raised above MODERATE) |
+| Median unlock, 3 ops / 256 MiB (MODERATE)         | 0.301 s                                                 |
+| Median unlock, 3 ops / 512 MiB (chosen, verified) | **0.632 s** — inside the 0.5–1.0 s envelope             |
+| Thermal state                                     | nominal                                                 |
+| Free memory before run                            | 3353 MiB (≥ 2× the 512 MiB pick)                        |
+| Peak process footprint during run                 | 535 MiB                                                 |
+| Build                                             | debug test host                                         |
 
 Honesty note on the release-build protocol: the test host ran in
 Xcode's default Debug configuration (`releaseBuild:false` in the

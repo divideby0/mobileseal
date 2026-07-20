@@ -10,6 +10,7 @@ CED-10 deliberately trimmed. Blocked by: iOS Vault App Shell — now
 resolved.
 
 Carried in from CED-11 RESULT.md follow-ups:
+
 - Streaming rewindable ChunkSource + streaming detail decode (remove
   the still viewer's whole-file materialization behind its 256 MiB
   ceiling).
@@ -20,6 +21,7 @@ Carried in from CED-11 RESULT.md follow-ups:
   from CED-10's api-shape trim).
 
 Carried in from Cedric's mid-CED-11 questions (map-rollforward-queue):
+
 - Design the reader seam with a PLUGGABLE chunk source (local store
   now, remote fetching source at the sync/cloud legs) — enables
   play-while-chunks-download (iCloud-like streaming) without

@@ -14,7 +14,7 @@ indistinguishable" requirement. I verified gate 1b independently:
 build` → **BUILD SUCCEEDED**. The findings below are real defects rather
 than architectural disagreement. Two of them undercut claims the goal's
 green gates assert: a reentrancy race that can repopulate the decoded-image
-cache *after* purge-on-lock (gate 5's custody claim), and gate 3's scroll
+cache _after_ purge-on-lock (gate 5's custody claim), and gate 3's scroll
 metrics being summed from cumulative counters, so the numbers destined for
 RESULT.md are inflated. A third — the Codex B2 "missing thumbnail
 regenerates on open" recovery rule — is implemented but never wired into
@@ -23,21 +23,21 @@ plaintext to disk.
 
 ## Findings
 
-| # | Severity | Location | Finding |
-|---|----------|----------|---------|
-| 1 | major | `App/MobileSeal/Grid/ThumbnailPipeline.swift:89` | Decoded plaintext can be inserted into the cache *after* `purge()`, defeating the purge-on-lock custody claim |
-| 2 | major | `App/MobileSeal/VaultStore.swift:88` | `regenerateMissingThumbnails()` is never called — the B2 recovery rule is dead code in the app |
-| 3 | major | `App/MobileSealUITests/GridScrollPerfUITests.swift:74` | Gate 3 sums cumulative counters, inflating `frames`/`hitches` — the recorded perf numbers are wrong |
-| 4 | major | `App/MobileSeal/VaultStore.swift:120` | Lock-on-background takes no `beginBackgroundTask` assertion; iOS may suspend the process before the session is consumed |
-| 5 | minor | `App/MobileSeal/VaultStore.swift:103` | Grace-period return drops the shield before the async lock lands — unlocked grid is briefly visible |
-| 6 | minor | `App/MobileSeal/Support/KDFCalibrator.swift:132` | `realMedianOf5` ignores the caller's `scratchDir`; the throwaway vault lands in `tmp`, outside the prepared container |
-| 7 | minor | `project.yml:38` | UI-test seams and 110 fixture images ship in the Release bundle |
-| 8 | minor | `App/MobileSeal/Grid/ThumbnailPipeline.swift:114` | `insert` double-counts `cacheCost` on re-insert, drifting the LRU ceiling downward |
-| 9 | minor | `App/MobileSeal/MediaIndex.swift:103` | Thumbnails with a missing/unparseable `parent` are silently dropped — neither shown nor reported |
-| 10 | minor | `App/MobileSeal/VaultCoordinator.swift:291` | Dedup hash set is read from an index the snapshot feed fills asynchronously — duplicates slip through right after unlock |
-| 11 | minor | `App/MobileSealTests/ScenePhaseLockTests.swift:103` | `gracePolicyLocksOnlyAfterWindowOnReturn` never exercises the lock-after-window branch it names |
-| 12 | nit | `App/MobileSeal/Grid/PhotoGridView.swift:154` | Display link leaks when a drag ends without deceleration |
-| 13 | nit | `App/MobileSeal/VaultStore.swift:75` | Debug `NSLog` tracing left on production lock/scene paths |
+| #   | Severity | Location                                               | Finding                                                                                                                  |
+| --- | -------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| 1   | major    | `App/MobileSeal/Grid/ThumbnailPipeline.swift:89`       | Decoded plaintext can be inserted into the cache _after_ `purge()`, defeating the purge-on-lock custody claim            |
+| 2   | major    | `App/MobileSeal/VaultStore.swift:88`                   | `regenerateMissingThumbnails()` is never called — the B2 recovery rule is dead code in the app                           |
+| 3   | major    | `App/MobileSealUITests/GridScrollPerfUITests.swift:74` | Gate 3 sums cumulative counters, inflating `frames`/`hitches` — the recorded perf numbers are wrong                      |
+| 4   | major    | `App/MobileSeal/VaultStore.swift:120`                  | Lock-on-background takes no `beginBackgroundTask` assertion; iOS may suspend the process before the session is consumed  |
+| 5   | minor    | `App/MobileSeal/VaultStore.swift:103`                  | Grace-period return drops the shield before the async lock lands — unlocked grid is briefly visible                      |
+| 6   | minor    | `App/MobileSeal/Support/KDFCalibrator.swift:132`       | `realMedianOf5` ignores the caller's `scratchDir`; the throwaway vault lands in `tmp`, outside the prepared container    |
+| 7   | minor    | `project.yml:38`                                       | UI-test seams and 110 fixture images ship in the Release bundle                                                          |
+| 8   | minor    | `App/MobileSeal/Grid/ThumbnailPipeline.swift:114`      | `insert` double-counts `cacheCost` on re-insert, drifting the LRU ceiling downward                                       |
+| 9   | minor    | `App/MobileSeal/MediaIndex.swift:103`                  | Thumbnails with a missing/unparseable `parent` are silently dropped — neither shown nor reported                         |
+| 10  | minor    | `App/MobileSeal/VaultCoordinator.swift:291`            | Dedup hash set is read from an index the snapshot feed fills asynchronously — duplicates slip through right after unlock |
+| 11  | minor    | `App/MobileSealTests/ScenePhaseLockTests.swift:103`    | `gracePolicyLocksOnlyAfterWindowOnReturn` never exercises the lock-after-window branch it names                          |
+| 12  | nit      | `App/MobileSeal/Grid/PhotoGridView.swift:154`          | Display link leaks when a drag ends without deceleration                                                                 |
+| 13  | nit      | `App/MobileSeal/VaultStore.swift:75`                   | Debug `NSLog` tracing left on production lock/scene paths                                                                |
 
 ---
 
@@ -71,7 +71,7 @@ normally.
 the gate is meant to cover: the user backgrounds the app while the grid
 is mid-scroll with decodes in flight. `ScenePhaseLockTests.backgroundImmediatePolicyLocksAndPurgesEverything`
 (`ScenePhaseLockTests.swift:65`) does not catch it because `makeWarmStore`
-awaits `image(for:)` to completion *before* locking, so nothing is ever
+awaits `image(for:)` to completion _before_ locking, so nothing is ever
 in flight at lock time.
 
 **Suggested fix** — make the insert generation-aware. The reader already
