@@ -1,0 +1,72 @@
+• Ran nl -ba App/MobileSeal/Grid/PhotoGridView.swift | sed -n '1,420p'; git diff --unified=100 main...HEAD -- App/MobileSeal/Grid/PhotoGridView.swift App/MobileSeal/UI/GalleryView.swift App/MobileSeal/Support/UITestSupport.swift
+  │ App/MobileSealUITests/E2EFlowUITests.swift App/MobileSealUITests/PlaybackPagerUITests.swift
+  └      1    import OSLog
+         2    import SwiftUI
+    … +1435 lines (ctrl + t to view transcript)
+    +    }
+    +}
+
+• Explored
+  └ Read ChunkProfileBenchmarkTests.swift, generate-video-fixtures.swift
+
+• Ran git diff --unified=80 main...HEAD -- CONTEXT.md project.yml MobileSeal.xcodeproj/project.pbxproj Scripts/run-gates.sh; rg -n "ChunkProfile|chunk profile|400|25%|p50|p90|4 MiB|2 MiB|1 MiB|AirPlay|HITL" --glob
+  │ '!goals/**/reviews/**' --glob '!goals/**/results/**' .
+  └ diff --git a/CONTEXT.md b/CONTEXT.md
+    index 8299131..3c6f591 100644
+    … +810 lines (ctrl + t to view transcript)
+    ./App/MobileSeal/Detail/StillDecoder.swift:11:    /// Decoded-bitmap ceiling: 4096 px long edge ≈ 64 MiB RGBA — one
+    ./App/MobileSeal/Detail/MediaPageViewController.swift:403:        // externally: AirPlay external playback is exempt (grill Q2);
+
+• Ran git diff --check main...HEAD -- . ':(exclude)goals/**/reviews/**' ':(exclude)goals/**/results/**'; git status --short
+  └ Sources/VaultCore/StreamingReader.swift:159: new blank line at EOF.
+
+• Explored
+  └ Search durationSeconds|load\(\.duration\)|livePhotoVideo in MobileSeal
+    Search importVideo\(|lowDisk|observedItemBytes|fileSize in ImportPipelineTests.swift
+    Read ImportPipelineTests.swift
+
+• Ran xcodebuild -project MobileSeal.xcodeproj -scheme MobileSeal -destination 'generic/platform=iOS' -derivedDataPath /tmp/evie-codex-CED12-derived CODE_SIGNING_ALLOWED=NO build
+  └ 2026-07-20 09:12:30.554 xcodebuild[29362:392597448]  DVTFilePathFSEvents: Failed to start fs event stream.
+    2026-07-20 09:12:30.786 xcodebuild[29362:392597447] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using
+    … +56 lines (ctrl + t to view transcript)
+    <unknown>:0: error: cannot open file '/Users/openclaw/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/tree.dia' for diagnostics emission (Operation not permitted)
+
+
+• Ran for f in App/MobileSeal/Detail/MediaPageViewController.swift App/MobileSeal/Detail/MediaPagerViewController.swift App/MobileSeal/Playback/PlaybackController.swift App/MobileSeal/Playback/VaultResourceLoaderDelegate.swift
+  │ App/MobileSeal/Import/VideoPoster.swift App/Fixtures/video-faststart.mp4 App/Fixtures/video-paired.mov App/Fixtures/video-tailmoov.mov App/Fixtures/video-unsupported.mp4; do base=$(basename "$f"); count=$(rg -c -F "$base"
+  │ MobileSeal.xcodeproj/project.pbxproj || true); printf '%s %s\n' "$base" "$count"; done; sed -n '1,220p' project.yml; git diff --numstat main...HEAD -- . ':(exclude)goals/**/reviews/**' ':(exclude)goals/**/results/**'
+  └ MediaPageViewController.swift 4
+    MediaPagerViewController.swift 4
+    … +162 lines (ctrl + t to view transcript)
+    38    0    goals/CED-12-streaming-media-playback/references/intake.md
+    133    0    goals/CED-12-streaming-media-playback/wayfinder/MAP.md
+
+• Ran nl -ba App/MobileSeal/Support/UITestSupport.swift | sed -n '1,260p'; git show main:App/MobileSeal/Detail/DetailView.swift | nl -ba | sed -n '1,240p'; nl -ba App/MobileSeal/Detail/StillDecoder.swift | sed -n '1,160p'
+  └      1    import Foundation
+         2
+    … +259 lines (ctrl + t to view transcript)
+        30        }
+        31    }
+
+• Ran rg -n "maxChunkSize|minChunkSize|validate\(chunkSize|defaultChunkSize|maxStoredChunkBytes" Sources/VaultCore docs/formats.md; nl -ba Sources/VaultCore/Format.swift 2>/dev/null | sed -n '1,220p'; rg -n "enum ChunkGeometry|
+  │ struct ChunkGeometry" Sources/VaultCore -l
+  └ Sources/VaultCore/Gallery.swift:156:        at url: URL, metadata: [UInt8] = [], chunkSize: UInt32 = VaultFormat.defaultChunkSize
+    Sources/VaultCore/Gallery.swift:166:        _ bytes: [UInt8], metadata: [UInt8] = [], chunkSize: UInt32 = VaultFormat.defaultChunkSize
+    … +15 lines (ctrl + t to view transcript)
+    Sources/VaultCore/SealedVault.swift:266:        ChunkObject.headerLength + Int(FormatV0.maxChunkSize) + CryptoCore.aeadTagBytes
+    Sources/VaultCore/ChunkObject.swift
+
+• Ran test -e /Users/openclaw/src/divideby0/mobileseal/.worktrees/CED-12-streaming-media-playback/goals/CED-12-streaming-media-playback/reviews/wave-001/codex/FINDINGS.md; printf '%s\n' $?
+  └ 1
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• The review has identified several concrete correctness and custody gaps. I’m recording them now in the required findings format; verification commands were also attempted, but this sandbox prevented Swift/Xcode package compilation
+  before source compilation began.
+
+• Working (7m 00s • esc to interrupt)
+
+
+› Improve documentation in @filename
+
+  gpt-5.6-sol high · /private/tmp/evie-review-CED-12-codex-193c4f36-mvoIxQ/tree

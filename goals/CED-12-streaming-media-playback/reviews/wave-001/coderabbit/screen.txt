@@ -1,0 +1,72 @@
+
+Writing review comments... 9m 48s elapsed - still working - 2 findings so far
+Writing review comments... 10m 48s elapsed - still working - 2 findings so far
+
+────────────────────────────────────────────────────────────────────────
+  minor [Functional Correctness]
+  → App/MobileSealTests/ChunkProfileBenchmarkTests.swift:182-200
+
+  Timeout silently inflates benchmark samples instead of failing.
+
+  If hasNewPixelBuffer never fires within the 30s deadline, the loop just
+  exits and elapsed (~30000ms) is recorded as a normal sample, then folded
+  into aggregate and the p50/p90 stats that drive the predeclared decision
+  rule (Line 139). A stuck loader/decoder would silently corrupt the
+  decision-grade data rather than failing the test loudly.
+
+
+  🐛 Proposed fix: fail on timeout instead of recording a bogus sample
+
+           let start = ContinuousClock.now
+           _ = await item.seek(
+               to: CMTime(seconds: position, preferredTimescale: 600),
+               toleranceBefore: .zero, toleranceAfter: .zero)
+           player.play()
+           let deadline = start.advanced(by: .seconds(30))
+  +        var presented = false
+           while ContinuousClock.now < deadline {
+               let t = output.itemTime(forHostTime: CACurrentMediaTime())
+  -            if output.hasNewPixelBuffer(forItemTime: t) { break }
+  +            if output.hasNewPixelBuffer(forItemTime: t) { presented = true; break }
+               try await Task.sleep(for: .milliseconds(2))
+           }
+           let elapsed = start.duration(to: ContinuousClock.now)
+           player.pause()
+           player.replaceCurrentItem(with: nil)
+           await cache.purge()
+  +        guard presented else {
+  +            throw TestError("no frame presented within 30s at position \(position)")
+  +        }
+           let ms = Double(elapsed.components.seconds) * 1000
+               + Double(elapsed.components.attoseconds) / 1e15
+           return ms
+
+
+────────────────────────────────────────
+Review complete
+3 findings ✔
+
+Major    1
+Minor    2
+
+50 files reviewed:
+- App/Fixtures/video-faststart.mp4
+- App/Fixtures/video-paired.mov
+- App/Fixtures/video-tailmoov.mov
+- App/Fixtures/video-unsupported.mp4
+- App/MobileSeal/Detail/DetailView.swift
+- App/MobileSeal/Detail/MediaPageViewController.swift
+- App/MobileSeal/Detail/MediaPagerViewController.swift
+- App/MobileSeal/Grid/PhotoGridView.swift
+- App/MobileSeal/Import/FixtureMediaProvider.swift
+- App/MobileSeal/Import/ImportEngine.swift
+... and 40 more files
+────────────────────────────────────────
+
+Print all AI prompts: coderabbit review --show-prompts
+
+REVIEW COMPLETE
+=== CODERABBIT REVIEWER DONE ===
+
+ openclaw  .../CED-12-streaming-media-playback   CED-12-streaming-media-playback ?  ⎈ gke-spanland-prod   09:19 
+❯

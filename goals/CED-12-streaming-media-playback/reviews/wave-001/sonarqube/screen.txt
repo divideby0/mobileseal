@@ -1,0 +1,72 @@
+09:08:58.490 INFO  There are no files to be analyzed for the Java language
+09:08:58.490 INFO  Sensor Java Config Sensor [iac] (done) | time=1ms
+09:08:58.490 INFO  Sensor IaC Docker Sensor [iac]
+09:08:58.491 INFO  There are no files to be analyzed for the Docker language
+09:08:58.491 INFO  Sensor IaC Docker Sensor [iac] (done) | time=1ms
+09:08:58.491 INFO  Sensor com.github.mc1arke.sonarqube.plugin.scanner.ScannerPullRequestPropertySensor
+09:08:58.491 INFO  Sensor com.github.mc1arke.sonarqube.plugin.scanner.ScannerPullRequestPropertySensor (done) | time=0ms
+09:08:58.492 INFO  Sensor JavaScript inside YAML analysis [javascript]
+09:08:58.494 INFO  No input files found for analysis
+09:08:58.494 INFO  Hit the cache for 0 out of 0
+09:08:58.495 INFO  Miss the cache for 0 out of 0
+09:08:58.495 INFO  Sensor JavaScript inside YAML analysis [javascript] (done) | time=4ms
+09:08:58.495 INFO  Sensor CSS Rules [javascript]
+09:08:58.495 INFO  No CSS, PHP, HTML or VueJS files are found in the project. CSS analysis is skipped.
+09:08:58.495 INFO  Sensor CSS Rules [javascript] (done) | time=0ms
+09:08:58.495 INFO  Sensor TextAndSecretsSensor [text]
+09:08:58.504 INFO  Available processors: 14
+09:08:58.505 INFO  Using 14 threads for analysis.
+09:08:58.611 INFO  The property "sonar.tests" is not set. To improve the analysis accuracy, we categorize a file as a test file if any of the following is true:
+  * The filename starts with "test"
+  * The filename contains "test." or "tests."
+  * Any directory in the file path is named: "doc", "docs", "test", "tests", "mock" or "mocks"
+  * Any directory in the file path has a name ending in "test" or "tests"
+
+09:08:58.620 INFO  Start fetching files for the text and secrets analysis
+09:08:58.630 INFO  Using Git CLI to retrieve dirty files
+09:08:58.640 INFO  Retrieving language associated files and files included via "sonar.text.inclusions" that are tracked by git
+09:08:58.642 INFO  Starting the text and secrets analysis
+09:08:58.643 INFO  32 source files to be analyzed for the text and secrets analysis
+09:08:58.704 INFO  32/32 source files have been analyzed for the text and secrets analysis
+09:08:58.706 INFO  Sensor TextAndSecretsSensor [text] (done) | time=211ms
+09:08:58.708 INFO  ------------- Run sensors on project
+09:08:58.767 INFO  Sensor Zero Coverage Sensor
+09:08:58.769 INFO  Sensor Zero Coverage Sensor (done) | time=2ms
+09:08:58.769 INFO  ------------- Gather SCA dependencies on project
+09:08:58.770 INFO  Dependency analysis skipped
+09:08:58.772 INFO  CPD Executor Calculating CPD for 0 files
+09:08:58.772 INFO  CPD Executor CPD calculation finished (done) | time=0ms
+09:08:58.776 INFO  SCM revision ID '3742e04741efd3c3c3c609d47ad58ac01b5b03fb'
+09:08:58.808 INFO  Load New Code definition
+09:08:58.817 INFO  Load New Code definition (done) | time=9ms
+09:08:58.826 INFO  Analysis report generated in 45ms, dir size=260.3 kB
+09:08:58.838 INFO  Analysis report compressed in 13ms, zip size=27.1 kB
+09:08:58.862 INFO  Analysis report uploaded in 24ms
+09:08:58.863 INFO  ANALYSIS SUCCESSFUL, you can find the results at: http://localhost:9283/dashboard?id=mobileseal-CED-12-streaming-media-playback
+09:08:58.863 INFO  Note that you will be able to access the updated dashboard once the server has processed the submitted analysis report
+09:08:58.863 INFO  More about the report processing at http://localhost:9283/api/ce/task?id=c82a1331-e110-4926-b6a5-1d53bdf32327
+09:08:58.868 INFO  Analysis total time: 6.187 s
+09:08:58.868 INFO  SonarScanner Engine completed successfully
+09:09:01.116 INFO  EXECUTION SUCCESS
+09:09:01.117 INFO  Total time: 11.369s
+
+\u2500\u2500 waiting for server-side processing (compute task c82a1331-e110-4926-b6a5-1d53bdf32327) \u2500\u2500
+ce poll 1: SUCCESS
+compute task c82a1331-e110-4926-b6a5-1d53bdf32327 processed
+
+\u2500\u2500 open issues (also written to FINDINGS.md) \u2500\u2500
+# SonarQube findings
+
+Ephemeral project: mobileseal-CED-12-streaming-media-playback (per-branch isolation, EVA-11;
+deleted at merge cleanup). Scan processed as compute task c82a1331-e110-4926-b6a5-1d53bdf32327.
+
+Scope note: this is the OPEN snapshot of that project after scanning
+this checkout; changed files outside the scan sources are not covered.
+
+total open: 0
+
+REVIEW COMPLETE
+=== SONARQUBE REVIEWER DONE ===
+
+ openclaw  .../CED-12-streaming-media-playback   CED-12-streaming-media-playback ?  ⎈ gke-spanland-prod   09:09 
+❯
