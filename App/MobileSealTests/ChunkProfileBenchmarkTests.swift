@@ -33,9 +33,19 @@ import VaultCore
 /// video profile for NEW imports (per-file property; formats.md
 /// already permits it). The decision must hold on the physical
 /// iPhone (HITL device run) before RESULT.md records it.
+/// Opt-in gate: the env var when it reaches the hosted process, or
+/// the marker file `/tmp/mobileseal-bench` (the simulator shares the
+/// host filesystem; TEST_RUNNER_ env forwarding does not reliably
+/// reach app-hosted unit tests).
+private var benchRequested: Bool {
+    ProcessInfo.processInfo.environment["MOBILESEAL_BENCH"] == "1"
+        || FileManager.default.fileExists(atPath: "/tmp/mobileseal-bench")
+}
+
 @MainActor
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["MOBILESEAL_BENCH"] == "1"))
+@Suite(.serialized, .enabled(if: benchRequested))
 struct ChunkProfileBenchmarkTests {
+
     struct Spec {
         let name: String
         let codec: AVVideoCodecType

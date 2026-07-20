@@ -2,9 +2,11 @@
 # Green-gate runner (CED-11 gates + CED-12 playback gates: streaming
 # suites ride the unit half; the pager/prefetch gate is its own UI
 # run). The CED-12 chunk-profile benchmark is opt-in (it renders 30 s
-# videos and takes minutes):
-#   xcodebuild test … -only-testing:MobileSealTests/ChunkProfileBenchmarkTests \
-#     TEST_RUNNER_MOBILESEAL_BENCH=1
+# videos and takes minutes) — arm it with the marker file, since
+# TEST_RUNNER_ env forwarding does not reach app-hosted unit tests:
+#   touch /tmp/mobileseal-bench
+#   xcodebuild test … -only-testing:MobileSealTests/ChunkProfileBenchmarkTests
+#   rm /tmp/mobileseal-bench
 # Prerequisite (one-time, admin): sudo xcodebuild -runFirstLaunch
 # and, if no iOS simulator runtime is installed yet:
 #   xcodebuild -downloadPlatform iOS
