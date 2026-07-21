@@ -42,4 +42,8 @@ enum MediaProviderError: Error, Equatable {
     /// The user cancelled the provider's load (distinct from batch
     /// cancellation, which arrives as `CancellationError`).
     case cancelled
+    /// Staged bytes contradict their manifest (CED-15 WS B.2): the
+    /// inbox item is corrupt — rejected before import, and the store
+    /// DISCARDS it rather than releasing it to re-fail forever.
+    case integrityMismatch(String)
 }

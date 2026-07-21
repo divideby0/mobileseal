@@ -15,6 +15,12 @@ struct MobileSealApp: App {
         // A container failure here means Application Support itself is
         // unavailable — nothing sensible to do but crash loudly.
         let container: AppContainer
+        // Share inbox (CED-15 WS B): the real app-group container in
+        // production; UI-test launches get an ISOLATED inbox inside
+        // their per-test container — the shared group container
+        // persists across simulator launches, and a stray staged item
+        // would pop the import prompt mid-e2e.
+        var inbox: InboxStore? = InboxStore.appGroup()
         if let name = UITestSupport.containerOverride {
             // Scripted-e2e seam: a per-test container so each UI test
             // starts from a clean vault while relaunches share state.
@@ -32,6 +38,8 @@ struct MobileSealApp: App {
                 LockPreferences.resetAll(in: .standard)
             }
             container = try! AppContainer(base: base)
+            inbox = try? InboxStore(
+                inboxDir: base.appendingPathComponent("Inbox", isDirectory: true))
             // CED-13 gate 2: the migration e2e leg starts from the
             // committed pre-migration (v0) vault fixture.
             UITestSupport.seedV0VaultIfRequested(into: container)
@@ -52,7 +60,8 @@ struct MobileSealApp: App {
         _store = State(
             initialValue: VaultStore(
                 coordinator: coordinator, container: container,
-                switchboard: switchboard, labelStore: labelStore))
+                switchboard: switchboard, labelStore: labelStore,
+                inbox: inbox))
     }
 
     var body: some Scene {

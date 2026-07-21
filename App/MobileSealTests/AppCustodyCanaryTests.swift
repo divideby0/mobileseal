@@ -154,12 +154,116 @@ import VaultCore
         let container = try TestSupport.makeContainer()
         defer { TestSupport.removeContainer(container) }
         #if os(iOS)
-            for dir in [container.vaultRoot, container.stagingDir] {
+            for dir in [container.vaultRoot, container.stagingDir, container.exportStagingDir] {
                 let attrs = try FileManager.default.attributesOfItem(atPath: dir.path)
                 if let protection = attrs[.protectionKey] as? FileProtectionType {
                     #expect(protection == .completeUnlessOpen)
                 }
             }
         #endif
+    }
+
+    // MARK: - CED-15 gate 4: export staging + share inbox
+
+    /// Export custody (CED-15 WS A): staged decrypted bytes live under
+    /// StagingExport/ ONLY between "staged" and the share sheet's
+    /// completion sweep — the ONE documented plaintext window of the
+    /// deliberate custody exit. THE CLAIM'S BOUNDARY (Codex A5): it
+    /// ends at the provider handoff — bytes an activity chosen in the
+    /// share sheet copies for itself belong to the OS from that
+    /// moment; completion-handler cleanup cannot and does not claim to
+    /// recall them.
+    @Test func exportCanaryGoneAfterCompletionSweepAndAfterLock() async throws {
+        let vault = try await UnlockedVault.create()
+        defer { Task { await vault.destroy() } }
+        let canaryURL = try makeCanaryImage()
+        defer { try? FileManager.default.removeItem(at: canaryURL) }
+
+        await vault.coordinator.startImport(providers: [
+            FixtureMediaProvider(fixtureURL: canaryURL)
+        ])
+        #expect(await TestSupport.waitUntil { vault.sink.lastSummary != nil })
+        _ = await TestSupport.waitUntil { !vault.sink.items.isEmpty }
+
+        // Stage for share: the canary is NOW under StagingExport/ —
+        // the documented window.
+        let result = await vault.coordinator.stageExport(items: vault.sink.items)
+        guard case .success(let batch) = result else {
+            Issue.record("stageExport failed: \(result)")
+            return
+        }
+        let windowHits = TestSupport.filesContaining(
+            Self.canary, under: vault.container.exportStagingDir)
+        #expect(!windowHits.isEmpty, "the staged export should hold the canary")
+
+        // Completion sweep → gone from the WHOLE container.
+        await vault.coordinator.finishExport(batchID: batch.id)
+        var hits = TestSupport.filesContaining(
+            Self.canary, under: containerBase(vault.container))
+        #expect(hits.isEmpty, "plaintext canary found after completion sweep: \(hits)")
+
+        // Stage again, then LOCK mid-share: the export participant
+        // sweeps before the custodian drain.
+        guard case .success = await vault.coordinator.stageExport(items: vault.sink.items)
+        else {
+            Issue.record("second stageExport failed")
+            return
+        }
+        await vault.coordinator.lock()
+        hits = TestSupport.filesContaining(
+            Self.canary, under: containerBase(vault.container))
+        #expect(hits.isEmpty, "plaintext canary found after mid-share lock: \(hits)")
+    }
+
+    /// Inbox custody (CED-15 WS B, Codex B7): app-group containers
+    /// inherit neither Data Protection nor backup exclusion, so BOTH
+    /// are asserted per file the writer creates. Simulator asserts the
+    /// attributes we set; device ENFORCEMENT is the stated residual.
+    @Test func inboxFilesCarryProtectionAndBackupExclusion() async throws {
+        let inboxDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "inbox-canary-\(UUID().uuidString)/Inbox", isDirectory: true)
+        let inbox = try InboxStore(inboxDir: inboxDir)
+        defer {
+            try? FileManager.default.removeItem(at: inboxDir.deletingLastPathComponent())
+        }
+        let canaryURL = try makeCanaryImage()
+        defer { try? FileManager.default.removeItem(at: canaryURL) }
+
+        let attachment = FakeAttachment(
+            registeredTypeIdentifiers: ["public.jpeg"],
+            suggestedName: "canary.jpg",
+            representations: ["public.jpeg": canaryURL])
+        let outcomes = await InboxWriter(store: inbox).stage(attachments: [attachment])
+        guard case .staged(let manifest) = outcomes[0].status else {
+            Issue.record("staging failed: \(outcomes[0].status)")
+            return
+        }
+
+        // Every file of the item — payload AND manifest — carries the
+        // exclusion flag; protection is asserted where reported.
+        var audited = [inbox.payloadURL(for: manifest.parts[0])]
+        audited.append(
+            inbox.inboxDir.appendingPathComponent(
+                InboxManifest.manifestName(itemID: manifest.itemID)))
+        for url in audited {
+            let values = try? url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+            #expect(
+                values?.isExcludedFromBackup == true,
+                "inbox file not backup-excluded: \(url.lastPathComponent)")
+            #if os(iOS)
+                let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+                if let protection = attrs[.protectionKey] as? FileProtectionType {
+                    #expect(protection == .completeUnlessOpen)
+                }
+            #endif
+        }
+
+        // The staged payload is plaintext by design (the inbox is the
+        // documented pre-import window, like Staging/) — but after a
+        // full import-and-clear cycle nothing may remain.
+        inbox.remove(itemID: manifest.itemID)
+        let hits = TestSupport.filesContaining(Self.canary, under: inboxDir)
+        #expect(hits.isEmpty, "inbox retained plaintext after removal: \(hits)")
     }
 }

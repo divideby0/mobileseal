@@ -24,6 +24,9 @@ struct ImportOutcome: Sendable, Equatable {
 
 enum ImportFailure: Error, Equatable, Sendable {
     case providerFailed(String)
+    /// Inbox integrity rejection (CED-15 WS B.2): staged bytes
+    /// contradict their manifest — the item never touches the vault.
+    case integrityMismatch(String)
     /// The still part is not decodable image data (thumbnail
     /// generation failed). The byte-exact original REMAINS committed —
     /// the archive never discards bytes — but the item is reported
@@ -186,6 +189,8 @@ struct ImportEngine: Sendable {
             // The user cancelled THIS item's load — skip it without
             // failing the batch (distinct from batch cancellation).
             return ImportOutcome(index: index, name: name, status: .notAttempted)
+        } catch MediaProviderError.integrityMismatch(let reason) {
+            return fail(.integrityMismatch(reason))
         } catch let error as MediaProviderError {
             return fail(.providerFailed(String(describing: error)))
         } catch {

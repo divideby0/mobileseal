@@ -30,6 +30,13 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
     /// Playback custody owner (CED-12 WS C.3) — registered with the
     /// coordinator's lock path at bootstrap.
     let playback = PlaybackController()
+    /// Export custody owner (CED-15 WS A.2) — registered with the
+    /// coordinator's lock path at bootstrap, like playback.
+    let export: ExportController
+    /// The app-group share inbox (CED-15 WS B); nil when the app-group
+    /// container is unavailable (missing entitlement — the feature
+    /// degrades to absent, never crashes).
+    let inbox: InboxStore?
 
     // MARK: - CED-14 root routing + list state
 
@@ -99,13 +106,16 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
     init(
         coordinator: VaultCoordinator, container: AppContainer,
         switchboard: GallerySwitchboard, labelStore: GalleryLabelStore,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        inbox: InboxStore? = InboxStore.appGroup()
     ) {
         self.coordinator = coordinator
         self.coordinatorContainer = container
         self.switchboard = switchboard
         self.labelStore = labelStore
         self.defaults = defaults
+        self.export = ExportController(container: container)
+        self.inbox = inbox
         self.lockPreferences = LockPreferences()
     }
 
@@ -125,11 +135,21 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
         // custodian drain, including gallery switches.
         await coordinator.attachLockParticipant(
             ThumbnailLockParticipant(pipeline: thumbnails))
+        // Export custody rides the same ONE lock path (CED-15 WS A.2):
+        // lock cancels in-flight decrypt/writes, awaits open handles,
+        // sweeps StagingExport/ — before the custodian drain.
+        await coordinator.attachExport(controller: export)
         await thumbnails.setDamageHandler { [weak self] fileID in
             await self?.markDamaged(fileID)
         }
         await switchboard.attach(sink: self)
         await switchboard.bootstrap()
+        // Inbox launch sweep (CED-15 WS B.1, Codex B6): ONLY stale
+        // incompletes and malformed manifests go; committed items
+        // persist (the app's wipe-all staging behavior explicitly
+        // does not apply); orphaned claims release — no import
+        // survives the previous process.
+        inbox?.sweepAtLaunch()
     }
 
     // MARK: - intents (all custody transitions route via switchboard)
@@ -209,6 +229,166 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
         Task { await coordinator.startImport(providers: providers) }
     }
 
+    // MARK: - export intents (CED-15 WS A)
+
+    /// True from staging start until the share sheet's completion
+    /// sweep — the scene-background override's MainActor mirror of the
+    /// controller's state (Codex B4).
+    private(set) var exportActive = false
+    /// Last staging failure, for the alert; settable so the UI clears
+    /// it on dismiss.
+    var lastExportError: String?
+
+    /// Stages `items` for the share sheet. Nil (with the error
+    /// recorded) when staging failed or the vault locked underneath.
+    func beginExport(_ items: [MediaItem]) async -> ExportBatch? {
+        guard phase.isUnlocked, !items.isEmpty else { return nil }
+        exportActive = true
+        switch await coordinator.stageExport(items: items) {
+        case .success(let batch):
+            return batch
+        case .failure(let error):
+            exportActive = false
+            switch error {
+            case .cancelled, .vaultLocked:
+                // Lock/background tore the staging down — the sweep
+                // already ran; nothing to report over the lock screen.
+                break
+            case .stagingUnavailable(let reason):
+                lastExportError = "Couldn't prepare the share: \(reason)"
+            }
+            return nil
+        }
+    }
+
+    /// Share-sheet completion/cancellation: sweep the batch.
+    func finishExport(_ batchID: UUID) {
+        exportActive = false
+        Task { await coordinator.finishExport(batchID: batchID) }
+    }
+
+    // MARK: - share inbox (CED-15 WS B.2)
+
+    /// The exactly-once import prompt for one committed batch
+    /// (Codex A4).
+    struct InboxPrompt: Equatable {
+        let items: [InboxStore.Item]
+        /// Quota-expiry notices consumed with this prompt (Codex A3).
+        let expiredCount: Int
+    }
+
+    /// Set = the prompt is up; settable so the UI can clear on
+    /// decline.
+    var pendingInboxPrompt: InboxPrompt?
+    /// Committed (unclaimed) items, for the Settings per-item view.
+    private(set) var stagedInboxItems: [InboxStore.Item] = []
+    /// Item IDs already offered this session — a batch prompts once;
+    /// only NEW arrivals re-prompt (Codex A4).
+    private var promptedInboxItemIDs: Set<UUID> = []
+    /// The in-flight claim's item IDs, ordered like the import's
+    /// providers (outcome index → item).
+    private var activeInboxClaim: [UUID]?
+
+    /// Inbox discovery (Codex A4): runs on activation AND unlock AND
+    /// gallery switch — all three funnel here, and the preconditions
+    /// (an unlocked, non-importing gallery on screen) decide.
+    func discoverInbox() {
+        guard let inbox else { return }
+        guard case .gallery = route, case .unlocked(importing: false) = phase,
+            activeInboxClaim == nil
+        else { return }
+        let scan = inbox.scan()
+        stagedInboxItems = scan.committed
+        guard pendingInboxPrompt == nil else { return }
+        let unprompted = scan.committed.filter { !promptedInboxItemIDs.contains($0.id) }
+        guard !unprompted.isEmpty else { return }
+        let notices = inbox.takeNotices()
+        pendingInboxPrompt = InboxPrompt(
+            items: scan.committed, expiredCount: notices.count)
+        for item in scan.committed { promptedInboxItemIDs.insert(item.id) }
+    }
+
+    /// Accept: claims the batch atomically through the switch
+    /// authority (CED-15 WS B.2) — the claim + import start run as one
+    /// switchboard transaction bound to the LIVE gallery; a
+    /// switch/lock during the import follows the normal
+    /// import-interruption rules.
+    func acceptInboxImport() {
+        guard let inbox, let prompt = pendingInboxPrompt,
+            let galleryID = selectedGalleryID
+        else { return }
+        pendingInboxPrompt = nil
+        let items = prompt.items
+        guard !items.isEmpty else { return }
+        let ids = items.map(\.id)
+        let providers = items.map { InboxMediaProvider(item: $0, store: inbox) }
+        // Set BEFORE the transaction: a fast import's summary must
+        // find the claim ledger in place.
+        activeInboxClaim = ids
+        Task {
+            let coordinator = self.coordinator
+            let accepted = await switchboard.claimBoundToLiveGallery(galleryID) {
+                do {
+                    try inbox.claim(itemIDs: ids, galleryID: galleryID)
+                } catch {
+                    return false
+                }
+                await coordinator.startImport(providers: providers)
+                return true
+            }
+            if !accepted {
+                // The gallery changed under the prompt: nothing was
+                // claimed; items stay committed for the next prompt.
+                activeInboxClaim = nil
+            }
+        }
+    }
+
+    /// Decline keeps committed items (within quota); they re-offer
+    /// only alongside NEW arrivals (Codex A4). Per-item discard lives
+    /// in Settings.
+    func declineInboxPrompt() {
+        pendingInboxPrompt = nil
+    }
+
+    /// Per-item discard (WS B.2): removes one committed staged item.
+    func discardInboxItem(_ id: UUID) {
+        guard let inbox else { return }
+        inbox.remove(itemID: id)
+        stagedInboxItems = inbox.scan().committed
+    }
+
+    /// Post-import reconciliation: imported and duplicate items leave
+    /// the inbox; integrity rejects are DISCARDED (they can never
+    /// import); everything else releases back to committed.
+    private func reconcileInboxClaim(with summary: ImportSummary) {
+        guard let inbox, let ids = activeInboxClaim else { return }
+        activeInboxClaim = nil
+        for outcome in summary.outcomes {
+            guard outcome.index < ids.count else { continue }
+            let id = ids[outcome.index]
+            switch outcome.status {
+            case .imported, .skippedDuplicate:
+                inbox.remove(itemID: id)
+            case .failed(.integrityMismatch):
+                inbox.remove(itemID: id)
+            case .failed, .notAttempted:
+                inbox.releaseClaim(itemID: id)
+            }
+        }
+        stagedInboxItems = inbox.scan().committed
+    }
+
+    /// Lock/switch interruption: the coordinator drops the summary
+    /// entirely, so release every claim here — imported members
+    /// re-offer and dedup to `skippedDuplicate` next time (converges),
+    /// unimported ones simply re-offer.
+    private func releaseInboxClaimsOnTeardown() {
+        guard let inbox, let ids = activeInboxClaim else { return }
+        activeInboxClaim = nil
+        for id in ids { inbox.releaseClaim(itemID: id) }
+    }
+
     /// One regeneration attempt per missing-thumbnail original (the
     /// Codex B2 on-open recovery rule; wired from `itemsChanged` —
     /// wave-001 cc #2 / codex #5 found the previous version dead code).
@@ -258,6 +438,9 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
             noteInteraction()
         }
         reloadLabels()
+        // Inbox discovery on activation (CED-15 WS B.2, Codex A4) —
+        // the extension may have staged items while we were away.
+        discoverInbox()
     }
 
     func sceneEnteredBackground() {
@@ -266,6 +449,19 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
         )
         shielded = true
         backgroundedAt = Date()
+        // Export-specific override (CED-15 WS A.2, Codex B4):
+        // REGARDLESS of the grace/off preference, an active export
+        // cancels and sweeps on `.background` — an open plaintext
+        // handoff never rides a grace window. Bytes already delivered
+        // to a chosen activity are past the custody boundary; the
+        // pre-share warning says so. (Under `.immediate` the lock
+        // participant would sweep anyway; this keeps the guarantee
+        // policy-independent.)
+        if exportActive {
+            exportActive = false
+            ExportShareFlow.dismissActive()
+            Task { await export.cancelActiveExport() }
+        }
         switch lockPreferences.backgroundPolicy {
         case .immediate:
             lock()
@@ -320,6 +516,10 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
             // (wave-001 claude-code #2).
             purgeCoverImages()
         }
+        // Inbox discovery on gallery switch (Codex A4): normally the
+        // unlock trigger fires later, but creation adopts unlocked
+        // BEFORE the route publish.
+        discoverInbox()
     }
 
     func registryChanged(_ snapshot: GallerySnapshot) {
@@ -332,9 +532,23 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
     func phaseChanged(_ phase: VaultPhase) {
         self.phase = phase
         // The pager must not outlive the unlocked phase — its pages
-        // hold decoded plaintext imagery (CED-12 WS C.3).
-        if !phase.isUnlocked { MediaPagerPresenter.dismissActive() }
+        // hold decoded plaintext imagery (CED-12 WS C.3). Same rule
+        // for the share sheet (CED-15): its staged items are swept by
+        // the export lock participant the moment `.locking` runs.
+        if !phase.isUnlocked {
+            MediaPagerPresenter.dismissActive()
+            ExportShareFlow.dismissActive()
+            exportActive = false
+            // A lock/switch mid-inbox-import dropped its summary:
+            // release the claims so the batch re-offers (CED-15 WS
+            // B.2 — normal import-interruption rules).
+            releaseInboxClaimsOnTeardown()
+            pendingInboxPrompt = nil
+        }
         if case .unlocked = phase { noteInteraction() }
+        // Inbox discovery on unlock (and after an import settles —
+        // the phase returns to non-importing; Codex A4).
+        if case .unlocked(importing: false) = phase { discoverInbox() }
         if case .unlocked = phase, lockPending {
             // A lock requested while an unlock was in flight must WIN
             // (CED-14 gate 3's backgrounding-mid-target-KDF race): the
@@ -405,6 +619,10 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
     }
 
     func importFinished(_ summary: ImportSummary) {
+        // Inbox reconciliation runs regardless of display rules: the
+        // claim ledger must settle whenever a summary exists (CED-15
+        // WS B.2).
+        reconcileInboxClaim(with: summary)
         // A summary arriving after (or during) a lock is dropped: its
         // outcomes carry filenames, and the locked UI must hold no
         // import residue.

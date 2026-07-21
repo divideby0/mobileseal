@@ -100,7 +100,8 @@ extension TestSupport {
     /// label key, injected defaults) in place.
     @MainActor
     static func makeStore(
-        coordinator: VaultCoordinator, container: AppContainer, defaults: UserDefaults
+        coordinator: VaultCoordinator, container: AppContainer, defaults: UserDefaults,
+        inbox: InboxStore? = nil
     ) -> VaultStore {
         let labelStore = GalleryLabelStore(
             container: container,
@@ -109,9 +110,19 @@ extension TestSupport {
         let switchboard = GallerySwitchboard(
             coordinator: coordinator, registry: GalleryRegistry(container: container),
             labelStore: labelStore, defaults: SendableDefaults(defaults))
+        // Tests NEVER get the real app-group inbox (the TEST_HOST app
+        // carries the CED-15 entitlement, so the default would share
+        // state across tests AND with a developer's simulator app):
+        // each store gets an isolated inbox beside its temp container.
+        let isolatedInbox =
+            inbox
+            ?? (try? InboxStore(
+                inboxDir: container.vaultRoot.deletingLastPathComponent()
+                    .appendingPathComponent("TestInbox", isDirectory: true)))
         return VaultStore(
             coordinator: coordinator, container: container,
-            switchboard: switchboard, labelStore: labelStore, defaults: defaults)
+            switchboard: switchboard, labelStore: labelStore, defaults: defaults,
+            inbox: isolatedInbox)
     }
 }
 
@@ -205,6 +216,9 @@ struct UnlockedVault {
     let container: AppContainer
     let coordinator: VaultCoordinator
     let sink: RecordingSink
+    /// Export custody owner (CED-15), registered in the lock path like
+    /// the app's bootstrap does.
+    let export: ExportController
     static let password = "correct horse battery staple"
 
     static func create() async throws -> UnlockedVault {
@@ -216,6 +230,8 @@ struct UnlockedVault {
             deviceName: "app-test-device")
         let sink = RecordingSink()
         await coordinator.attach(sink: sink)
+        let export = ExportController(container: container)
+        await coordinator.attachExport(controller: export)
         await coordinator.start()
         guard await TestSupport.waitUntil({ sink.phase == .needsSetup }) else {
             throw TestError("never reached needsSetup")
@@ -224,7 +240,8 @@ struct UnlockedVault {
         guard await TestSupport.waitUntil({ sink.phase == .unlocked(importing: false) }) else {
             throw TestError("create did not reach unlocked; last=\(String(describing: sink.phase))")
         }
-        return UnlockedVault(container: container, coordinator: coordinator, sink: sink)
+        return UnlockedVault(
+            container: container, coordinator: coordinator, sink: sink, export: export)
     }
 
     func destroy() async {

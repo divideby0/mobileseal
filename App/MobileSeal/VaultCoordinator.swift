@@ -165,6 +165,8 @@ actor VaultCoordinator {
     private var latestSnapshot: InventorySnapshot?
     private var snapshotTask: Task<Void, Never>?
     private var importTask: Task<Void, Never>?
+    /// Export custody owner (CED-15 WS A.2); registered like playback.
+    private var exportController: ExportController?
     private(set) var phase: VaultPhase = .starting
     /// The unlocked gallery's soft-delete ledger (device-local,
     /// CED-13 WS C.2); nil while locked.
@@ -223,6 +225,15 @@ actor VaultCoordinator {
         lockParticipants.append(participant)
     }
 
+    /// Registers export custody (CED-15 WS A.2, Codex B2): the
+    /// controller owns StagingExport/ and rides the one lock path like
+    /// playback — in-flight decrypt/writes cancel and the root sweeps
+    /// before the custodian drain.
+    func attachExport(controller: ExportController) {
+        exportController = controller
+        lockParticipants.append(controller)
+    }
+
     // MARK: - Startup + selection (CED-14 WS A.2)
 
     /// Launch: wipe staging (crash-path custody — gate 4). Gallery
@@ -235,6 +246,9 @@ actor VaultCoordinator {
     func start() async {
         guard phase == .starting else { return }
         container.wipeStaging()
+        // Export half of the crash-path claim (CED-15 gate 2): a crash
+        // mid-share strands decrypted originals in StagingExport/.
+        container.wipeExportStaging()
         phase = .needsSetup
         await publishPhase()
     }
@@ -461,6 +475,11 @@ actor VaultCoordinator {
                 provider: chunkProvider, cache: playbackCache)
         }
         let streaming = streamingReader
+        // Re-check AFTER the awaits above (CED-15): a lock that ran
+        // to completion while this ingest was suspended (actor
+        // reentrancy) must not let a stale pre-lock item list paint
+        // over the cleared UI state.
+        guard phase.isUnlocked, self.gallery === gallery else { return }
         let sink = self.sink
         await MainActor.run {
             sink?.readerChanged(reader)
@@ -647,6 +666,47 @@ actor VaultCoordinator {
             // Undecodable or locked: leave the no-preview badge; the
             // grid already reports the item damaged/missing.
         }
+    }
+
+    // MARK: - Export (CED-15 WS A)
+
+    /// Stages `items` for the share sheet: every selected top-level
+    /// entry decrypts to a file in StagingExport/, a Live Photo
+    /// contributing TWO file items (still + paired video — Codex B5:
+    /// true re-pairing needs PhotoKit write authorization the app
+    /// does not hold; documented, deferred). The paired video presents
+    /// under the still's stem with its own UTI-derived extension.
+    func stageExport(items: [MediaItem]) async -> Result<ExportBatch, ExportError> {
+        guard case .unlocked = phase, let gallery, let exportController else {
+            return .failure(.vaultLocked)
+        }
+        var plan: [ExportPlanItem] = []
+        for item in items {
+            plan.append(
+                ExportPlanItem(
+                    fileID: item.id, byteLength: item.byteLength,
+                    filename: item.filename, uti: item.uti))
+            if let videoID = item.livePhotoVideoID {
+                let stem = item.filename.map { ($0 as NSString).deletingPathExtension }
+                plan.append(
+                    ExportPlanItem(
+                        fileID: videoID, byteLength: item.livePhotoVideoByteLength,
+                        filename: stem, uti: item.livePhotoVideoUTI))
+            }
+        }
+        let reader = await gallery.makeReader()
+        do {
+            return .success(try await exportController.stage(plan: plan, reader: reader))
+        } catch let error as ExportError {
+            return .failure(error)
+        } catch {
+            return .failure(.stagingUnavailable(String(describing: error)))
+        }
+    }
+
+    /// Share-sheet completion/cancellation sweep for one batch.
+    func finishExport(batchID: UUID) async {
+        await exportController?.finish(batchID: batchID)
     }
 
     /// Cover-pipeline source (CED-14 WS B.2): decrypts one ORIGINAL's

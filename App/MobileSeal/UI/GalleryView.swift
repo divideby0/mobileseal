@@ -11,7 +11,29 @@ struct GalleryView: View {
     @State private var selectionMode = false
     @State private var selection: Set<FileID> = []
     @State private var confirmBulkDelete = false
+    /// Pre-share custody warning (CED-15 WS A.1) — generic by design:
+    /// the share sheet cannot reveal the destination.
+    @State private var confirmBulkShare = false
     @State private var showRecentlyDeleted = false
+
+    private var inboxPromptTitle: String {
+        let count = store.pendingInboxPrompt?.items.count ?? 0
+        let gallery = store.selectedGalleryName ?? "this gallery"
+        return "Import \(count) staged \(count == 1 ? "item" : "items") into \(gallery)?"
+    }
+
+    private var inboxPromptMessage: String {
+        var lines = [
+            "Another app shared these into MobileSeal. They are staged encrypted and import into the currently unlocked gallery."
+        ]
+        if let expired = store.pendingInboxPrompt?.expiredCount, expired > 0 {
+            lines.append(
+                "\(expired) older staged \(expired == 1 ? "item" : "items") expired to stay within storage limits."
+            )
+        }
+        lines.append("Declined items stay staged — review them under Settings.")
+        return lines.joined(separator: "\n")
+    }
 
     var body: some View {
         NavigationStack {
@@ -67,6 +89,22 @@ struct GalleryView: View {
                             Label("Lock", systemImage: "lock.fill")
                         }
                         .accessibilityIdentifier("lock-button")
+                    }
+                }
+                // Bulk share rides the BOTTOM bar (CED-15 WS A.1): a
+                // third top-trailing item would make iOS collapse the
+                // bar into a system overflow (the CED-13 e2e lesson
+                // noted below).
+                ToolbarItemGroup(placement: .bottomBar) {
+                    if selectionMode {
+                        Button {
+                            confirmBulkShare = true
+                        } label: {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(selection.isEmpty || store.exportActive)
+                        .accessibilityIdentifier("select-share-button")
+                        Spacer()
                     }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -188,6 +226,49 @@ struct GalleryView: View {
                 Text(
                     "Removed items move to Recently Deleted for \(RecentlyDeletedStore.retentionDays) days, then are removed from the vault."
                 )
+            }
+            .confirmationDialog(
+                ExportShareFlow.warningTitle(count: selection.count),
+                isPresented: $confirmBulkShare,
+                titleVisibility: .visible
+            ) {
+                Button(selection.count == 1 ? "Share" : "Share \(selection.count) Items") {
+                    let items = store.items.filter { selection.contains($0.id) }
+                    selectionMode = false
+                    selection = []
+                    ExportShareFlow.stageAndPresent(store: store, items: items, anchor: nil)
+                }
+                .accessibilityIdentifier("confirm-bulk-share")
+            } message: {
+                Text(ExportShareFlow.warningMessage)
+            }
+            .alert(
+                "Share failed",
+                isPresented: Binding(
+                    get: { store.lastExportError != nil },
+                    set: { if !$0 { store.lastExportError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(store.lastExportError ?? "")
+            }
+            // Share-inbox prompt (CED-15 WS B.2, Codex A4): exactly
+            // once per staged batch; accept claims the batch into THIS
+            // unlocked gallery through the switch authority.
+            .alert(
+                inboxPromptTitle,
+                isPresented: Binding(
+                    get: { store.pendingInboxPrompt != nil },
+                    set: { if !$0 { store.declineInboxPrompt() } }
+                )
+            ) {
+                Button("Import") { store.acceptInboxImport() }
+                    .accessibilityIdentifier("inbox-import-button")
+                Button("Not Now", role: .cancel) { store.declineInboxPrompt() }
+                    .accessibilityIdentifier("inbox-decline-button")
+            } message: {
+                Text(inboxPromptMessage)
             }
             .overlay(alignment: .bottom) {
                 if let progress = store.importProgress {
@@ -377,6 +458,8 @@ struct ImportSummaryView: View {
                     "Low disk space: needs \(ByteCountFormatter.string(fromByteCount: required, countStyle: .file)) free, only \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file)) available"
             case .vaultLocked:
                 return "The vault locked during import"
+            case .integrityMismatch(let reason):
+                return "Rejected before import — staged bytes don't match their manifest: \(reason)"
             case .providerFailed(let reason):
                 return "Couldn't read from the photo library: \(reason)"
             case .vaultError(let reason):

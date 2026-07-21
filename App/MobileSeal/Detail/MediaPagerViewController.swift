@@ -89,9 +89,48 @@ final class MediaPagerViewController: UIPageViewController {
                 equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
         ])
 
+        // Single-item share (CED-15 WS A.1): custody warning → stage →
+        // share sheet, mirroring the grid's bulk affordance.
+        var shareConfig = UIButton.Configuration.plain()
+        shareConfig.image = UIImage(systemName: "square.and.arrow.up")
+        shareConfig.baseForegroundColor = .white
+        let share = UIButton(configuration: shareConfig)
+        share.translatesAutoresizingMaskIntoConstraints = false
+        share.addAction(
+            UIAction { [weak self] _ in self?.confirmShareCurrent() }, for: .touchUpInside)
+        share.accessibilityIdentifier = "pager-share"
+        view.addSubview(share)
+        NSLayoutConstraint.activate([
+            share.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            share.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
+        ])
+
         if UITestSupport.isUITestMode {
             installPlaybackDebugOverlay()
         }
+    }
+
+    // MARK: - share (CED-15 WS A.1)
+
+    /// Pre-share custody warning for the current item — generic copy
+    /// shared with the grid flow (the sheet cannot reveal the chosen
+    /// destination).
+    private func confirmShareCurrent() {
+        let item = currentItem
+        let alert = UIAlertController(
+            title: ExportShareFlow.warningTitle(count: 1),
+            message: ExportShareFlow.warningMessage,
+            preferredStyle: .alert)
+        alert.addAction(
+            UIAlertAction(title: "Share", style: .default) { [weak self] _ in
+                guard let self else { return }
+                ExportShareFlow.stageAndPresent(
+                    store: self.store, items: [item], anchor: self.view)
+            })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(alert, animated: true)
     }
 
     // MARK: - UI-test instrumentation (gate 4: prefetch discipline)

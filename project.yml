@@ -32,6 +32,10 @@ targets:
     platform: iOS
     sources:
       - path: App/MobileSeal
+      # Share-inbox protocol (CED-15 WS B): compiled into BOTH the app
+      # and the extension — the writer/store/manifest are one library,
+      # unit-tested through the app target.
+      - path: App/ShareInbox
       # Committed fixture images ride the app bundle for the scripted
       # e2e gate (UI-test launch mode imports them through the fixture
       # provider seam). ~1 MiB of tiny JPEG/HEIC.
@@ -41,6 +45,17 @@ targets:
     dependencies:
       - package: VaultCore
         product: VaultCore
+      # Share extension (CED-15 WS B.3): embedded into PlugIns/.
+      - target: MobileSealShare
+    # App-group custody (CED-15 WS B.3, Codex B7/B11): the group
+    # container carries the extension→app inbox; entitlements on BOTH
+    # targets. Signed two-App-ID install feasibility is the stated
+    # HITL residual — simulator proves functionality.
+    entitlements:
+      path: App/MobileSeal/MobileSeal.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.gmail.cedric.hurst.mobileseal
     info:
       path: App/MobileSeal/Info.plist
       properties:
@@ -60,6 +75,45 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_MACCATALYST: false
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
+
+  MobileSealShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: App/MobileSealShare
+      - path: App/ShareInbox
+    dependencies:
+      # VaultCore for MediaHashing (BLAKE2b manifests) ONLY — the
+      # extension never unlocks and never runs the KDF (120 MB limit;
+      # see research/_default/argon2id-tuning-on-modern-iphones.md).
+      - package: VaultCore
+        product: VaultCore
+    entitlements:
+      path: App/MobileSealShare/MobileSealShare.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.gmail.cedric.hurst.mobileseal
+    info:
+      path: App/MobileSealShare/Info.plist
+      properties:
+        CFBundleDisplayName: MobileSeal
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: ShareViewController
+          NSExtensionAttributes:
+            # Media UTIs only (CED-15 WS B.1): images and movies, no
+            # web pages, text, or arbitrary files (files-types fog).
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 50
+              NSExtensionActivationSupportsMovieWithMaxCount: 50
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gmail.cedric.hurst.mobileseal.share
+        PRODUCT_NAME: MobileSealShare
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: false
 
   MobileSealTests:
     type: bundle.unit-test

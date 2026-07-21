@@ -113,6 +113,20 @@ actor GallerySwitchboard {
         await next.value
     }
 
+    /// Value-returning transaction (CED-15 WS B.2): same FIFO chain,
+    /// for transitions whose caller needs the outcome.
+    private func serializedResult<T: Sendable>(
+        _ op: @escaping @Sendable () async -> T
+    ) async -> T {
+        let previous = transactionTail
+        let next = Task<T, Never> {
+            await previous?.value
+            return await op()
+        }
+        transactionTail = Task { _ = await next.value }
+        return await next.value
+    }
+
     // MARK: - Transitions (each = one serialized transaction)
 
     /// Launch transaction: coordinator startup, registry scan, the
@@ -176,6 +190,22 @@ actor GallerySwitchboard {
     /// stands in.
     func refreshRegistry() async {
         await serialized { await self.performRefreshRegistry() }
+    }
+
+    /// Inbox-claim transaction (CED-15 WS B.2, Codex A4): runs `body`
+    /// — claim the batch, start the import — atomically bound to the
+    /// LIVE gallery. One serialized transaction, so no switch, lock,
+    /// or create can interleave between the liveness check and the
+    /// import start; a teardown arriving later follows the normal
+    /// import-interruption rules. Returns false (body never runs)
+    /// when `galleryID`'s DEK is no longer the live one.
+    func claimBoundToLiveGallery(
+        _ galleryID: UUID, body: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        await serializedResult {
+            guard await self.liveGalleryID == galleryID else { return false }
+            return await body()
+        }
     }
 
     // MARK: - Transaction bodies (only ever run on the chain)

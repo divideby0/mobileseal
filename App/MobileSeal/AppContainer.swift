@@ -30,6 +30,15 @@ struct AppContainer: Sendable {
     let vaultRoot: URL
     let galleriesDir: URL
     let stagingDir: URL
+    /// EXPORT staging (CED-15 WS A.1, Codex B3): the one deliberate
+    /// custody exit stages decrypted originals here before the share
+    /// sheet hands them to a chosen activity. A SIBLING of `Staging/`,
+    /// deliberately NOT under it: import's wipe-all (`wipeStaging()`,
+    /// called at every import end) must never race a live export
+    /// handoff. Same custody contract as Staging — `.completeUnlessOpen`,
+    /// backup-excluded, swept on every launch (crash path) and by the
+    /// export lock participant.
+    let exportStagingDir: URL
     /// DEVICE-LOCAL state (CED-13 WS B.7): the rollback high-water
     /// marks and the soft-delete ledger. Lives OUTSIDE the vault root
     /// and is EXCLUDED from backup — it describes THIS device's
@@ -59,6 +68,7 @@ struct AppContainer: Sendable {
         vaultRoot = base.appendingPathComponent("Vault", isDirectory: true)
         galleriesDir = vaultRoot.appendingPathComponent("galleries", isDirectory: true)
         stagingDir = base.appendingPathComponent("Staging", isDirectory: true)
+        exportStagingDir = base.appendingPathComponent("StagingExport", isDirectory: true)
         deviceLocalDir = base.appendingPathComponent("DeviceLocal", isDirectory: true)
         labelsDir = base.appendingPathComponent("Labels", isDirectory: true)
         try prepare()
@@ -66,11 +76,13 @@ struct AppContainer: Sendable {
 
     private func prepare() throws {
         let fm = FileManager.default
-        for dir in [vaultRoot, galleriesDir, stagingDir, deviceLocalDir, labelsDir] {
+        for dir in [vaultRoot, galleriesDir, stagingDir, exportStagingDir, deviceLocalDir, labelsDir]
+        {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         Self.applyProtection(.completeUnlessOpen, to: vaultRoot)
         Self.applyProtection(.completeUnlessOpen, to: stagingDir)
+        Self.applyProtection(.completeUnlessOpen, to: exportStagingDir)
         Self.applyProtection(.completeUnlessOpen, to: deviceLocalDir)
         Self.applyProtection(.completeUnlessOpen, to: labelsDir)
         // Vault root participates in backup (grill Q7): assert the
@@ -81,7 +93,7 @@ struct AppContainer: Sendable {
         // roll back with the vault it is meant to check).
         // A failure here is a custody-contract breach and must be
         // LOUD, not swallowed (wave-001 coderabbit #3).
-        for dir in [stagingDir, deviceLocalDir] {
+        for dir in [stagingDir, exportStagingDir, deviceLocalDir] {
             var target = dir
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
@@ -217,6 +229,38 @@ struct AppContainer: Sendable {
     /// A fresh per-batch staging subdirectory.
     func makeBatchStagingDirectory() throws -> URL {
         let dir = stagingDir.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        Self.applyProtection(.completeUnlessOpen, to: dir)
+        return dir
+    }
+
+    // MARK: - Export staging lifecycle (CED-15 WS A)
+
+    /// Wipes everything under StagingExport/ — the export half of the
+    /// crash-path custody claim (swept on launch, on lock via the
+    /// export lock participant, and at share completion). Same
+    /// loud-failure policy as `wipeStaging()`.
+    func wipeExportStaging() {
+        let fm = FileManager.default
+        guard
+            let entries = try? fm.contentsOfDirectory(
+                at: exportStagingDir, includingPropertiesForKeys: nil)
+        else { return }
+        for entry in entries {
+            do {
+                try fm.removeItem(at: entry)
+            } catch {
+                Self.log.fault(
+                    "failed to wipe export staging at \(entry.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+                assertionFailure("export staging wipe failed at \(entry.path): \(error)")
+            }
+        }
+    }
+
+    /// A fresh per-batch export staging subdirectory.
+    func makeExportBatchDirectory() throws -> URL {
+        let dir = exportStagingDir.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         Self.applyProtection(.completeUnlessOpen, to: dir)
         return dir

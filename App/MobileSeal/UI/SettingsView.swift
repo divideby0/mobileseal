@@ -74,6 +74,44 @@ struct SettingsView: View {
                     )
                 }
 
+                // Staged share-inbox items (CED-15 WS B.2): declined
+                // items persist here with per-item discard — quota
+                // expiry (2 GiB / 50 items, oldest first) bounds them.
+                if !store.stagedInboxItems.isEmpty {
+                    Section {
+                        ForEach(store.stagedInboxItems) { item in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(
+                                        item.manifest.parts.first?.originalFilename
+                                            ?? "Shared item"
+                                    )
+                                    .lineLimit(1)
+                                    Text(
+                                        ByteCountFormatter.string(
+                                            fromByteCount: item.totalBytes,
+                                            countStyle: .file)
+                                    )
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Discard", role: .destructive) {
+                                    store.discardInboxItem(item.id)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    } header: {
+                        Text("Staged Imports")
+                    } footer: {
+                        Text(
+                            "Items shared from other apps, staged for import. They import into the unlocked gallery when you accept the import prompt; discarding removes the staged copy without importing."
+                        )
+                    }
+                    .accessibilityIdentifier("staged-imports")
+                }
+
                 // Device Argon2id calibration record (GOAL WS D.4 /
                 // gate 6): the numbers the device benchmark
                 // transcribes into RESULT.md.
