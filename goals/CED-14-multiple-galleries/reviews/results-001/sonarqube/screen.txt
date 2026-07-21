@@ -1,0 +1,51 @@
+  * The filename starts with "test"
+  * The filename contains "test." or "tests."
+  * Any directory in the file path is named: "doc", "docs", "test", "tests", "mock" or "mocks"
+  * Any directory in the file path has a name ending in "test" or "tests"
+
+23:31:10.123 INFO  Start fetching files for the text and secrets analysis
+23:31:10.131 INFO  Using Git CLI to retrieve dirty files
+23:31:10.144 INFO  Retrieving language associated files and files included via "sonar.text.inclusions" that are tracked by git
+23:31:10.146 INFO  Starting the text and secrets analysis
+23:31:10.147 INFO  33 source files to be analyzed for the text and secrets analysis
+23:31:10.213 INFO  33/33 source files have been analyzed for the text and secrets analysis
+23:31:10.216 INFO  Sensor TextAndSecretsSensor [text] (done) | time=229ms
+23:31:10.218 INFO  ------------- Run sensors on project
+23:31:10.281 INFO  Sensor Zero Coverage Sensor
+23:31:10.282 INFO  Sensor Zero Coverage Sensor (done) | time=2ms
+23:31:10.283 INFO  ------------- Gather SCA dependencies on project
+23:31:10.284 INFO  Dependency analysis skipped
+23:31:10.285 INFO  CPD Executor Calculating CPD for 0 files
+23:31:10.285 INFO  CPD Executor CPD calculation finished (done) | time=0ms
+23:31:10.290 INFO  SCM revision ID '40c9e8e4ea426fdb8614b21abd0d2cae40cf37f4'
+23:31:10.362 INFO  Analysis report generated in 74ms, dir size=259.1 kB
+23:31:10.370 INFO  Analysis report compressed in 8ms, zip size=27.1 kB
+23:31:10.512 INFO  Analysis report uploaded in 142ms
+23:31:10.513 INFO  ANALYSIS SUCCESSFUL, you can find the results at: http://localhost:9283/dashboard?id=mobileseal-CED-14-multiple-galleries
+23:31:10.513 INFO  Note that you will be able to access the updated dashboard once the server has processed the submitted analysis report
+23:31:10.513 INFO  More about the report processing at http://localhost:9283/api/ce/task?id=588c7692-5864-4244-aacf-013d3dfb3c25
+23:31:10.519 INFO  Analysis total time: 7.044 s
+23:31:10.519 INFO  SonarScanner Engine completed successfully
+23:31:12.752 INFO  EXECUTION SUCCESS
+23:31:12.753 INFO  Total time: 12.516s
+
+\u2500\u2500 waiting for server-side processing (compute task 588c7692-5864-4244-aacf-013d3dfb3c25) \u2500\u2500
+ce poll 1: SUCCESS
+compute task 588c7692-5864-4244-aacf-013d3dfb3c25 processed
+
+\u2500\u2500 open issues (also written to FINDINGS.md) \u2500\u2500
+# SonarQube findings
+
+Ephemeral project: mobileseal-CED-14-multiple-galleries (per-branch isolation, EVA-11;
+deleted at merge cleanup). Scan processed as compute task 588c7692-5864-4244-aacf-013d3dfb3c25.
+
+Scope note: this is the OPEN snapshot of that project after scanning
+this checkout; changed files outside the scan sources are not covered.
+
+total open: 0
+
+REVIEW COMPLETE
+=== SONARQUBE REVIEWER DONE ===
+
+ openclaw  .../CED-14-multiple-galleries   CED-14-multiple-galleries ?  ⎈ gke-spanland-prod   23:31 
+❯

@@ -1,0 +1,51 @@
+  minor [Maintainability & Code Quality]
+  → goals/CED-14-multiple-galleries/GOAL.md:107-108
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @goals/CED-14-multiple-galleries/GOAL.md around lines 107 - 108, Update
+  the E2E gate claim in the goal documentation so it no longer attributes
+  label custody verification to MultiGalleryUITests, which does not scan
+  gallery-format files. Move the assertion to the unit/adversarial gate, or
+  add explicit gallery-format verification to MultiGalleryUITests before
+  retaining the E2E claim.
+
+
+────────────────────────────────────────────────────────────────────────
+  major [Functional Correctness]
+  → App/MobileSeal/GallerySwitchboard.swift:243-287
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @App/MobileSeal/GallerySwitchboard.swift around lines 243 - 287, Update
+  performCreateGallery so it preserves the previously selected gallery and
+  route before teardown/deselection, then restores that selection and
+  publishes the corresponding .gallery route when coordinator.createGallery
+  returns nil. Keep the existing failure handling for the no-selection case
+  and leave successful creation behavior unchanged.
+
+
+────────────────────────────────────────────────────────────────────────
+  minor [Functional Correctness]
+  → App/MobileSeal/GallerySwitchboard.swift:203-207
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @App/MobileSeal/GallerySwitchboard.swift around lines 203 - 207, Update
+  performSelect so a missing record ID follows the same recovery behavior as
+  performSwitchTo: call performBackToList() before returning. Preserve
+  selectRecord(record) for IDs found in snapshot.records.
+
+captured 7035 bytes of prompts
+
+REVIEW COMPLETE
+=== CODERABBIT REVIEWER DONE ===
+
+ openclaw  .../CED-14-multiple-galleries   CED-14-multiple-galleries ?  ⎈ gke-spanland-prod   23:49 
+❯
