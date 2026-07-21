@@ -81,21 +81,26 @@ struct KeychainDeviceKeyStore: DeviceKeyStore {
     private func createAndPersist() throws -> DeviceIdentity {
         let secret = try DeviceIdentity.generateSecretKey()
         // AUDITED TRANSFER (create direction): SecureBytes → Data for
-        // SecItemAdd, intermediary zeroed before return.
+        // SecItemAdd, intermediary zeroed before return. The wipe
+        // only bites when `keyData`'s storage is uniquely referenced
+        // — Data is copy-on-write — so every other reference (the
+        // attributes dictionary) is dropped BEFORE the wipe (wave-001
+        // codex #1 / coderabbit).
         var keyData = Data(count: DeviceIdentity.secretKeyBytes)
         keyData.withUnsafeMutableBytes { dst in
             secret.withUnsafeBytes { src in
                 dst.baseAddress!.copyMemory(from: src.baseAddress!, byteCount: src.count)
             }
         }
+        var attributes = baseQuery()
+        attributes[kSecValueData as String] = keyData
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         defer {
+            attributes.removeValue(forKey: kSecValueData as String)
             keyData.withUnsafeMutableBytes { raw in
                 raw.baseAddress.map { memset_s($0, raw.count, 0, raw.count) }
             }
         }
-        var attributes = baseQuery()
-        attributes[kSecValueData as String] = keyData
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         let status = SecItemAdd(attributes as CFDictionary, nil)
         if status == errSecDuplicateItem {
             // Lost a creation race (or a previous create crashed after

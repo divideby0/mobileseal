@@ -460,18 +460,20 @@ actor VaultCoordinator {
     func purgeDeletedItems(_ originalIDs: [FileID]) async {
         guard phase.isUnlocked, let gallery, let store = recentlyDeletedStore else { return }
         for id in originalIDs {
-            let members = store.remove(originalID: id)?.memberFileIDs
-                ?? aggregateMembers(of: id)
+            // Tombstones COMMIT FIRST; the ledger row is removed only
+            // after the durable success (wave-001 codex #6) — a failed
+            // commit keeps the row, so the user's "remove permanently"
+            // choice is retried rather than silently downgraded to a
+            // reappearing grid item.
+            let members = store.all.first { $0.originalID == id.description }?
+                .memberFileIDs ?? aggregateMembers(of: id)
             do {
                 try await gallery.deleteEntries(members)
             } catch {
-                // vaultLocked mid-purge: the ledger row is already
-                // gone but the entries remain — they resurface in the
-                // grid on next unlock rather than silently lingering
-                // half-deleted.
                 Self.logPurgeFailure(error)
                 break
             }
+            store.remove(originalID: id)
         }
         await republishFromCurrentSnapshot(gallery)
     }

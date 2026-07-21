@@ -65,11 +65,6 @@ final class RecentlyDeletedStore: @unchecked Sendable {
         return load()
     }
 
-    /// File IDs hidden from the grid (all members of all aggregates).
-    var hiddenFileIDs: Set<FileID> {
-        Set(all.flatMap(\.memberFileIDs))
-    }
-
     func softDelete(originalID: FileID, memberIDs: [FileID], at date: Date = Date()) {
         lock.lock()
         defer { lock.unlock() }

@@ -1,0 +1,51 @@
+  * Any directory in the file path is named: "doc", "docs", "test", "tests", "mock" or "mocks"
+  * Any directory in the file path has a name ending in "test" or "tests"
+
+19:11:54.135 INFO  Start fetching files for the text and secrets analysis
+19:11:54.144 INFO  Using Git CLI to retrieve dirty files
+19:11:54.154 INFO  Retrieving language associated files and files included via "sonar.text.inclusions" that are tracked by git
+19:11:54.156 INFO  Starting the text and secrets analysis
+19:11:54.157 INFO  33 source files to be analyzed for the text and secrets analysis
+19:11:54.202 INFO  33/33 source files have been analyzed for the text and secrets analysis
+19:11:54.207 INFO  Sensor TextAndSecretsSensor [text] (done) | time=430ms
+19:11:54.213 INFO  ------------- Run sensors on project
+19:11:54.273 INFO  Sensor Zero Coverage Sensor
+19:11:54.275 INFO  Sensor Zero Coverage Sensor (done) | time=1ms
+19:11:54.275 INFO  ------------- Gather SCA dependencies on project
+19:11:54.276 INFO  Dependency analysis skipped
+19:11:54.277 INFO  CPD Executor Calculating CPD for 0 files
+19:11:54.277 INFO  CPD Executor CPD calculation finished (done) | time=0ms
+19:11:54.282 INFO  SCM revision ID '94f476a10886fb9cf0036d68ca035a7aabda9913'
+19:11:54.346 INFO  Analysis report generated in 65ms, dir size=259.1 kB
+19:11:54.353 INFO  Analysis report compressed in 8ms, zip size=27.1 kB
+19:11:54.446 INFO  Analysis report uploaded in 93ms
+19:11:54.447 INFO  ANALYSIS SUCCESSFUL, you can find the results at: http://localhost:9283/dashboard?id=mobileseal-CED-13-manifest-crdt
+-device-identity
+19:11:54.447 INFO  Note that you will be able to access the updated dashboard once the server has processed the submitted analysis repo
+rt
+19:11:54.447 INFO  More about the report processing at http://localhost:9283/api/ce/task?id=b454ce10-0bc8-4aca-a75b-1d04e3b25cc3
+19:11:54.451 INFO  Analysis total time: 7.118 s
+19:11:54.451 INFO  SonarScanner Engine completed successfully
+19:11:56.524 INFO  EXECUTION SUCCESS
+19:11:56.525 INFO  Total time: 12.843s
+
+\u2500\u2500 waiting for server-side processing (compute task b454ce10-0bc8-4aca-a75b-1d04e3b25cc3) \u2500\u2500
+ce poll 1: SUCCESS
+compute task b454ce10-0bc8-4aca-a75b-1d04e3b25cc3 processed
+
+\u2500\u2500 open issues (also written to FINDINGS.md) \u2500\u2500
+# SonarQube findings
+
+Ephemeral project: mobileseal-CED-13-manifest-crdt-device-identity (per-branch isolation, EVA-11;
+deleted at merge cleanup). Scan processed as compute task b454ce10-0bc8-4aca-a75b-1d04e3b25cc3.
+
+Scope note: this is the OPEN snapshot of that project after scanning
+this checkout; changed files outside the scan sources are not covered.
+
+total open: 0
+
+REVIEW COMPLETE
+=== SONARQUBE REVIEWER DONE ===
+
+ openclaw  .../CED-13-manifest-crdt-device-identity   CED-13-manifest-crdt-device-identity ?⇡  ⎈ gke-spanland-prod   19:11 
+❯

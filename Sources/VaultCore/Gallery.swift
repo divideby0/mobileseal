@@ -344,11 +344,15 @@ public actor Gallery {
     /// sharing.
     public func deleteEntries(_ fileIDs: [FileID]) throws {
         let targets = Set(fileIDs)
-        let present = manifest.state.entries.filter { targets.contains($0.fileID) }
-        let alreadyTombstoned = Set(
-            manifest.state.tombstones.map(\.targetFileID))
-        let newTombstones = present
-            .filter { !alreadyTombstoned.contains($0.fileID) }
+        // Idempotence is judged by EFFECTIVE suppression, not by mere
+        // tombstone presence (wave-001 codex #2): an INERT tombstone
+        // (untrusted author, mismatched digest) must not block a valid
+        // delete — it is a normal retained CRDT state, not a deletion.
+        let suppressed = Set(
+            manifest.state.entries.map(\.fileID)).subtracting(
+            Set(visibleEntries.map(\.fileID)))
+        let newTombstones = manifest.state.entries
+            .filter { targets.contains($0.fileID) && !suppressed.contains($0.fileID) }
             .map { entry in
                 SignedTombstone.minted(
                     targetFileID: entry.fileID,
@@ -378,13 +382,21 @@ public actor Gallery {
         // itself in the same commit — append-only union, version + 1,
         // member role (genesis owner role is minted at create/migrate).
         if !next.state.trustList.contains(identity.publicKey) {
+            // The wire bound is a hard parse limit: signing a 1025th
+            // device would commit a manifest that cannot be reopened
+            // (wave-001 codex #3) — refuse with a typed error instead.
+            guard next.state.trustList.devices.count < Int(FormatV1.maxTrustedDevices)
+            else {
+                tx?.abort()
+                throw VaultError.boundsViolation(.manifest, field: "trust_device_count")
+            }
             let devices = SignedTrustList.mergeDevices(
                 next.state.trustList.devices,
                 [
                     TrustedDevice(
                         publicKey: identity.publicKey, role: .member,
                         addedAtUnixMS: UInt64(Date().timeIntervalSince1970 * 1000),
-                        name: deviceName)
+                        name: SignedTrustList.canonicalName(deviceName))
                 ])
             next.state.trustList = SignedTrustList.minted(
                 listVersion: next.state.trustList.listVersion + 1,
@@ -470,5 +482,13 @@ public actor Gallery {
     /// inspect the CRDT state behind the effective view).
     func debugManifest() -> ManifestObject {
         manifest
+    }
+
+    /// Test hook: adopts a manifest state in memory (merged-history
+    /// simulation — e.g. injecting inert tombstones a sync would have
+    /// delivered) without committing; the effective view recomputes.
+    func debugReplaceManifest(_ next: ManifestObject) {
+        manifest = next
+        visibleEntries = next.state.effectiveView(galleryID: meta.galleryID).visibleEntries
     }
 }

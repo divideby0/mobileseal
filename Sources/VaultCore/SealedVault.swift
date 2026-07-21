@@ -427,38 +427,51 @@ public struct SealedVault: Sendable {
                 }
             }
         }
+        // Ties on the shared axis prefer v1 (docs/formats.md
+        // §Recovery v1; wave-001 coderabbit caught `<` contradicting
+        // the documented rule).
         if let (manifest, address) = bestV1,
-            bestV0 == nil || bestV0!.0.generation < manifest.localRevision
+            bestV0 == nil || bestV0!.0.generation <= manifest.localRevision
         {
             // Repair HEAD with a fresh descriptor signed by THIS
             // device — best-effort in FULL (wave-002 coderabbit):
             // recovery already succeeded, so a failed repair write
-            // must not abort the unlock.
-            let counter =
-                (try rollbackStore.highWaterMark(
-                    galleryID: galleryID, signer: identity.publicKey) ?? 0) + 1
-            let descriptor = SignedHeadDescriptor.minted(
-                manifestAddress: address, counter: counter,
-                author: identity, galleryID: galleryID)
-            let headTmp = layout.root.appendingPathComponent("HEAD.tmp")
-            if let newHead = try? custodian.withKey({ raw -> [UInt8] in
-                // Transient DEK copy for the borrowing seal API; its
-                // deinit zeroes on scope exit.
-                let dekCopy = try SecureBytes(zeroed: CryptoCore.keyBytes)
-                dekCopy.withUnsafeMutableBytes { dst in
-                    dst.baseAddress!.copyMemory(
-                        from: raw.baseAddress!, byteCount: CryptoCore.keyBytes)
+            // must not abort the unlock. ONLY when this device is in
+            // the recovered manifest's trust list (wave-001
+            // claude-code #1 / codex #5): the normal load path
+            // rejects an unlisted HEAD signer, so writing one here
+            // would persist a HEAD the next unlock calls tampering.
+            // An unlisted device proceeds in memory; its TOFU
+            // registration commit writes a consistent HEAD.
+            if manifest.state.trustList.contains(identity.publicKey) {
+                let counter =
+                    (try rollbackStore.highWaterMark(
+                        galleryID: galleryID, signer: identity.publicKey) ?? 0) + 1
+                let descriptor = SignedHeadDescriptor.minted(
+                    manifestAddress: address, counter: counter,
+                    author: identity, galleryID: galleryID)
+                let headTmp = layout.root.appendingPathComponent("HEAD.tmp")
+                if let newHead = try? custodian.withKey({ raw -> [UInt8] in
+                    // Transient DEK copy for the borrowing seal API;
+                    // its deinit zeroes on scope exit.
+                    let dekCopy = try SecureBytes(zeroed: CryptoCore.keyBytes)
+                    dekCopy.withUnsafeMutableBytes { dst in
+                        dst.baseAddress!.copyMemory(
+                            from: raw.baseAddress!, byteCount: CryptoCore.keyBytes)
+                    }
+                    return try HeadV1.serialize(
+                        descriptor: descriptor, dek: dekCopy, galleryID: galleryID,
+                        epoch: epoch)
+                }),
+                    (try? FS.write(newHead, to: headTmp, fsync: true)) != nil
+                {
+                    _ = try? FileManager.default.replaceItemAt(
+                        layout.headURL, withItemAt: headTmp)
+                    try? FS.fsyncDir(layout.root)
+                    try? rollbackStore.recordObservation(
+                        galleryID: galleryID, signer: identity.publicKey, counter: counter)
+                    return LoadedManifest(manifest: manifest, ownCounterBase: counter)
                 }
-                return try HeadV1.serialize(
-                    descriptor: descriptor, dek: dekCopy, galleryID: galleryID, epoch: epoch)
-            }),
-                (try? FS.write(newHead, to: headTmp, fsync: true)) != nil
-            {
-                _ = try? FileManager.default.replaceItemAt(layout.headURL, withItemAt: headTmp)
-                try? FS.fsyncDir(layout.root)
-                try? rollbackStore.recordObservation(
-                    galleryID: galleryID, signer: identity.publicKey, counter: counter)
-                return LoadedManifest(manifest: manifest, ownCounterBase: counter)
             }
             let ownBase =
                 try rollbackStore.highWaterMark(

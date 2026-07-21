@@ -51,8 +51,15 @@ enum UITestSupport {
                 .appendingPathComponent("Fixtures/v0-vault/gallery", isDirectory: true),
             FileManager.default.fileExists(atPath: bundled.path)
         else { return }
-        try? FileManager.default.copyItem(
-            at: bundled, to: container.newGalleryDirectory())
+        do {
+            try FileManager.default.copyItem(
+                at: bundled, to: container.newGalleryDirectory())
+        } catch {
+            // UI-test-only path: a silent skip would run the migration
+            // e2e without its fixture and fail misleadingly (wave-001
+            // coderabbit) — fail fast instead.
+            preconditionFailure("unable to seed v0 UI-test fixture: \(error)")
+        }
     }
 
     /// The committed fixture batch (bundled under Fixtures/): sorted

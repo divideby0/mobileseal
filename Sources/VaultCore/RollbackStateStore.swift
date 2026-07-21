@@ -56,7 +56,17 @@ public final class FileRollbackStateStore: RollbackStateStore, @unchecked Sendab
     }
 
     private func load() throws -> State {
-        guard let data = try? Data(contentsOf: url) else { return State() }
+        // Missing file = legitimate first run. A file that EXISTS but
+        // cannot be read or decoded must surface, not silently reset:
+        // an empty state drops every signer to the TOFU path where the
+        // rollback detector never fires (wave-001 coderabbit).
+        guard FileManager.default.fileExists(atPath: url.path) else { return State() }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw VaultError.ioFailure(operation: "read rollback state", path: url.path)
+        }
         do {
             return try JSONDecoder().decode(State.self, from: data)
         } catch {

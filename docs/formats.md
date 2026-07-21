@@ -321,10 +321,15 @@ domain ‖ sig_version u16 (=1) ‖ gallery_uuid(16) ‖ payload
 
 where `domain` is the object kind's NUL-terminated ASCII domain
 separator and `payload` is the object's full canonical payload
-(every semantic field, epoch included where present). A signature is
-therefore bound to object kind, format version, and gallery — no
-cross-gallery or cross-kind replay. Stored form is always
-`payload ‖ signature(64)`.
+(every semantic field, epoch included where it IS a semantic field —
+AddEntry's chunk epoch). The SEALING keyring epoch is deliberately
+NOT in the signing preamble: signed CRDT elements must survive DEK
+rotation verbatim (a tombstone signed at epoch 0 stays valid after
+rotation re-seals the manifest at epoch 1 — its author cannot be
+asked to re-sign), so container-epoch binding belongs to the AEAD AAD
+(which covers it), never the signature. A signature is therefore
+bound to object kind, format version, and gallery — no cross-gallery
+or cross-kind replay. Stored form is always `payload ‖ signature(64)`.
 
 | Object kind     | Signing domain                   |
 | --------------- | -------------------------------- |

@@ -78,15 +78,41 @@ struct SignedTrustList: Equatable, Sendable {
         Self.payloadBytes(listVersion: listVersion, devices: devices, signer: signerPublicKey)
     }
 
+    /// Deterministic writer-side name canonicalization (wave-001
+    /// codex #3): the wire bound is 256 UTF-8 bytes and the parser
+    /// REJECTS violations, so a writer must never sign a longer name
+    /// — a user-controlled device name would otherwise commit a
+    /// manifest that cannot be reopened. Truncates on a character
+    /// boundary to the largest prefix within the bound.
+    static func canonicalName(_ name: String) -> String {
+        var candidate = name
+        while candidate.utf8.count > FormatV1.maxDeviceNameBytes, !candidate.isEmpty {
+            candidate.removeLast()
+        }
+        return candidate
+    }
+
     /// Mints a signed trust list. Devices are canonicalized (sorted by
-    /// public key); duplicates are a programmer error.
+    /// public key, names truncated to the wire bound); duplicates or
+    /// an over-bound device count are programmer errors — the ONLY
+    /// growth path (TOFU registration) enforces the count with a
+    /// typed error before reaching here.
     static func minted(
         listVersion: UInt64, devices: [TrustedDevice], signer: DeviceIdentity, galleryID: UUID
     ) -> SignedTrustList {
-        let sorted = devices.sorted { $0.publicKey.bytes.lexicographicallyPrecedes($1.publicKey.bytes) }
+        let sorted = devices
+            .map {
+                TrustedDevice(
+                    publicKey: $0.publicKey, role: $0.role,
+                    addedAtUnixMS: $0.addedAtUnixMS, name: canonicalName($0.name))
+            }
+            .sorted { $0.publicKey.bytes.lexicographicallyPrecedes($1.publicKey.bytes) }
         precondition(
             Set(sorted.map(\.publicKey)).count == sorted.count,
             "duplicate device in trust list")
+        precondition(
+            sorted.count <= Int(FormatV1.maxTrustedDevices),
+            "trust list over the wire bound")
         precondition(sorted.contains { $0.publicKey == signer.publicKey },
             "trust-list signer must be listed")
         let payload = payloadBytes(

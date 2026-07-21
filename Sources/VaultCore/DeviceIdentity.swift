@@ -65,6 +65,18 @@ public final class DeviceIdentity: @unchecked Sendable {
     /// the new key at creation time. The returned buffer is the ONLY
     /// copy; a store either persists it (through its audited
     /// transfer point) and constructs the identity, or frees it.
+    ///
+    /// CUSTODY CONTRACT (deliberate design, wave-001 disposition):
+    /// the pluggable-store model REQUIRES key material to cross this
+    /// seam — the Keychain adapter lives in the app layer and the CLI
+    /// leg adds a passphrase-wrapped file store, so a package-sealed
+    /// boundary is structurally impossible. The gate is therefore:
+    /// raw bytes exist only inside a store's ONE audited transfer
+    /// point (bounded `withUnsafeBytes` scopes, intermediaries
+    /// zeroed), and an already-constructed `DeviceIdentity` can never
+    /// leak its key (no accessor; compile-fail-pinned). A conforming
+    /// store implementation is part of the audited surface by
+    /// definition.
     public static func generateSecretKey() throws -> SecureBytes {
         try SodiumRuntime.ensure()
         let sk = try SecureBytes(zeroed: secretKeyBytes)
