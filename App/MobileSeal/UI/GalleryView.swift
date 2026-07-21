@@ -79,22 +79,14 @@ struct GalleryView: View {
                         .disabled(selection.isEmpty)
                         .accessibilityIdentifier("select-delete-button")
                     } else {
-                        if UITestSupport.isUITestMode {
-                            // Scripted-e2e seam (gate 2): feeds the
-                            // committed fixture batch through the fixture
-                            // provider — the real pipeline, fake picker.
-                            Button("Import Fixtures") {
-                                store.startImport(
-                                    providers: UITestSupport.fixtureBatchProviders())
-                            }
-                            .accessibilityIdentifier("import-fixtures-button")
-                            // Gate 3's 500-photo fixture gallery, seeded
-                            // directly for scroll-perf measurement.
-                            Button("Seed 500") {
-                                Task { await store.coordinator.seedGallery(count: 500) }
-                            }
-                            .accessibilityIdentifier("seed-gallery-button")
-                        }
+                        // Exactly TWO trailing items (More + Import):
+                        // a third makes iOS collapse the bar into a
+                        // system overflow "More", burying this menu a
+                        // level deeper (bit the CED-13 e2e). The
+                        // UI-test seams therefore live INSIDE the
+                        // menu, matched by label — SwiftUI does not
+                        // propagate accessibility identifiers onto
+                        // menu items.
                         Menu {
                             Button {
                                 selectionMode = true
@@ -114,6 +106,19 @@ struct GalleryView: View {
                                 showSettings = true
                             } label: {
                                 Label("Settings", systemImage: "gearshape")
+                            }
+                            if UITestSupport.isUITestMode {
+                                // Scripted-e2e seam (gate 2): the
+                                // committed fixture batch through the
+                                // real pipeline, fake picker.
+                                Button("Import Fixtures") {
+                                    store.startImport(
+                                        providers: UITestSupport.fixtureBatchProviders())
+                                }
+                                // Gate 3's 500-photo fixture gallery.
+                                Button("Seed 500") {
+                                    Task { await store.coordinator.seedGallery(count: 500) }
+                                }
                             }
                         } label: {
                             Label("More", systemImage: "ellipsis.circle")

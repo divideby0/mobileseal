@@ -38,6 +38,12 @@ xcodebuild -project MobileSeal.xcodeproj -scheme MobileSeal \
   -only-testing:MobileSealUITests/E2EFlowUITests \
   test
 
+echo "== CED-13 gate 2: migration + two-tier delete e2e (UI) =="
+xcodebuild -project MobileSeal.xcodeproj -scheme MobileSeal \
+  -destination "$DEST" \
+  -only-testing:MobileSealUITests/MigrationDeleteUITests \
+  test
+
 echo "== Gate 3: instrumented 500-photo scroll perf (UI) =="
 xcodebuild -project MobileSeal.xcodeproj -scheme MobileSeal \
   -destination "$DEST" \

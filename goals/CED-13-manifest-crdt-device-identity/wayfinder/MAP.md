@@ -28,7 +28,12 @@ sharing, iPad, visionOS: beyond this map.
 - **Deferred HITL validation checklist** (CED-12 RESULT, cedric away
   from machine): AirPlay truth table, on-device benchmark
   confirmation, real-picker video/Live-Photo smoke — run before the
-  daily-driver milestone, no leg blocks on them.
+  daily-driver milestone, no leg blocks on them. CED-13 adds: verify
+  on a REAL device that the device-key Keychain item is enforced as
+  `WhenUnlockedThisDeviceOnly` (device-bound, absent from backups —
+  simulator asserts attributes/API behavior only; stated residual,
+  review A6), and that a restored backup re-enrolls as a new device
+  via TOFU.
 - Format changes land in `docs/formats.md` with KAT vectors (CED-10
   discipline); formatter runs scope to the ACTIVE goal folder only —
   never a bare `goals/**` glob (locked records are byte-stable).

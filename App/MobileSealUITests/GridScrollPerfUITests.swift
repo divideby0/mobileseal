@@ -50,10 +50,9 @@ final class GridScrollPerfUITests: XCTestCase {
         confirmField.typeText(password)
         app.buttons["setup-create"].tap()
 
-        // Seed 500 items directly through the Gallery actor.
-        let seed = app.buttons["seed-gallery-button"]
-        XCTAssertTrue(seed.waitForExistence(timeout: 60))
-        seed.tap()
+        // Seed 500 items directly through the Gallery actor (seam in
+        // the More menu).
+        XCTAssertTrue(app.tapMoreMenuItem(label: "Seed 500", timeout: 60))
 
         // Seeding runs asynchronously (≈1000 WAL commits); the
         // toolbar's item-count element is the completion signal —

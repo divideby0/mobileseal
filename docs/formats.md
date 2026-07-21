@@ -342,20 +342,20 @@ signature failure MUST be distinguishable from AEAD failure.
 
 Payload (in order):
 
-| Field            | Type / len | Constraint                              |
-| ---------------- | ---------- | --------------------------------------- |
-| file_id          | 16 B UUID  | entry identity, unique within manifest  |
-| aad_file_id      | 16 B UUID  | v0 rule verbatim (dedup AAD context)    |
-| epoch            | u32        | keyring epoch of the chunks' DEK        |
-| chunk_size       | u32        | §Chunking bounds                        |
-| unpadded_length  | u64        | ≤ 2^48                                  |
-| dedup_hash       | 32 B       | v0 rule verbatim                        |
-| chunk_count      | u32        | = max(1, ceil(unpadded/chunk_size))     |
-| chunk_addresses  | 32 B each  | chunk_count entries                     |
-| metadata_length  | u32        | ≤ 1 MiB                                 |
-| metadata         | bytes      | opaque to VaultCore                     |
-| author_pubkey    | 32 B       | Ed25519 public key                      |
-| migrated_from_v0 | u8         | 0 or 1 (others rejected)                |
+| Field            | Type / len | Constraint                             |
+| ---------------- | ---------- | -------------------------------------- |
+| file_id          | 16 B UUID  | entry identity, unique within manifest |
+| aad_file_id      | 16 B UUID  | v0 rule verbatim (dedup AAD context)   |
+| epoch            | u32        | keyring epoch of the chunks' DEK       |
+| chunk_size       | u32        | §Chunking bounds                       |
+| unpadded_length  | u64        | ≤ 2^48                                 |
+| dedup_hash       | 32 B       | v0 rule verbatim                       |
+| chunk_count      | u32        | = max(1, ceil(unpadded/chunk_size))    |
+| chunk_addresses  | 32 B each  | chunk_count entries                    |
+| metadata_length  | u32        | ≤ 1 MiB                                |
+| metadata         | bytes      | opaque to VaultCore                    |
+| author_pubkey    | 32 B       | Ed25519 public key                     |
+| migrated_from_v0 | u8         | 0 or 1 (others rejected)               |
 
 An AddEntry is a **superset of the v0 inventory entry** — dedup-shared
 chunks, thumbnail/Live-Photo links (inside the opaque metadata), and
@@ -429,14 +429,14 @@ as in v0). Maximum stored size 256 MiB.
 
 Decrypted body (in order):
 
-| Field           | Type     | Constraint                               |
-| --------------- | -------- | ---------------------------------------- |
-| local_revision  | u64      | LOCAL commit revision — see below        |
-| trust_list      | signed   | §TrustList (self-delimiting)             |
-| entry_count     | u32      | ≤ 1 000 000                              |
-| entries         | repeated | §AddEntry, sorted strictly ⬆ by file_id  |
-| tombstone_count | u32      | ≤ 1 000 000                              |
-| tombstones      | repeated | §Tombstone, sorted strictly ⬆ by bytes   |
+| Field           | Type     | Constraint                              |
+| --------------- | -------- | --------------------------------------- |
+| local_revision  | u64      | LOCAL commit revision — see below       |
+| trust_list      | signed   | §TrustList (self-delimiting)            |
+| entry_count     | u32      | ≤ 1 000 000                             |
+| entries         | repeated | §AddEntry, sorted strictly ⬆ by file_id |
+| tombstone_count | u32      | ≤ 1 000 000                             |
+| tombstones      | repeated | §Tombstone, sorted strictly ⬆ by bytes  |
 
 Trailing bytes are rejected. A manifest object is **one COMPLETE
 operation-set snapshot** — the trust list is embedded (not referenced
@@ -464,13 +464,13 @@ re-signs the carrier.
 
 Fixed 218 bytes:
 
-| Offset | Len | Field                | Constraint             |
-| ------ | --- | -------------------- | ---------------------- |
-| 0      | 8   | magic                | `MSVHEAD1`             |
-| 8      | 2   | format_version u16   | 1                      |
-| 10     | 32  | manifest_address     | plaintext (sealed plane resolves HEAD without the DEK) |
-| 42     | 24  | nonce                | random                 |
-| 66     | 152 | sealed descriptor    | 136 B plaintext + 16 B tag |
+| Offset | Len | Field              | Constraint                                             |
+| ------ | --- | ------------------ | ------------------------------------------------------ |
+| 0      | 8   | magic              | `MSVHEAD1`                                             |
+| 8      | 2   | format_version u16 | 1                                                      |
+| 10     | 32  | manifest_address   | plaintext (sealed plane resolves HEAD without the DEK) |
+| 42     | 24  | nonce              | random                                                 |
+| 66     | 152 | sealed descriptor  | 136 B plaintext + 16 B tag                             |
 
 Descriptor AAD: `"mobileseal.head.v1" ‖ 0x00 ‖ gallery_uuid ‖
 epoch u32 ‖ format_version u16`.
@@ -547,8 +547,6 @@ the old device's key (Keychain `ThisDeviceOnly`) and without
 device-local state. The new device enrolls as a NEW device via TOFU;
 old entries remain valid under the old public key forever; no
 recovery of the old identity is needed in single-user semantics.
-
-
 
 - **Secure memory**: the reference implementation keeps the DEK and
   all decrypted plaintext in `sodium_malloc` guarded allocations

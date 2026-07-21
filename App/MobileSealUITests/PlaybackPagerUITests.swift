@@ -73,9 +73,7 @@ final class PlaybackPagerUITests: XCTestCase {
         confirmField.typeText(password)
         app.buttons["setup-create"].tap()
 
-        let importFixtures = app.buttons["import-fixtures-button"]
-        XCTAssertTrue(importFixtures.waitForExistence(timeout: 60))
-        importFixtures.tap()
+        XCTAssertTrue(app.tapMoreMenuItem(label: "Import Fixtures", timeout: 60))
         let summary = app.otherElements["import-summary"]
         XCTAssertTrue(summary.waitForExistence(timeout: 600), "import never finished")
         app.buttons["summary-done"].tap()

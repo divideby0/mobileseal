@@ -47,16 +47,6 @@ final class MigrationDeleteUITests: XCTestCase {
         app.buttons["unlock-button"].tap()
     }
 
-    /// SwiftUI Menu identifiers do not reliably propagate to the
-    /// rendered toolbar button — match identifier OR label.
-    private func moreMenuButton(_ app: XCUIApplication) -> XCUIElement {
-        let button = app.buttons.matching(
-            NSPredicate(format: "identifier == 'more-menu-button' OR label == 'More'")
-        ).firstMatch
-        XCTAssertTrue(button.waitForExistence(timeout: 15), "More menu missing")
-        return button
-    }
-
     private func itemCount(_ app: XCUIApplication) -> Int? {
         let label = app.staticTexts["item-count"]
         guard label.exists else { return nil }
@@ -82,7 +72,7 @@ final class MigrationDeleteUITests: XCTestCase {
 
         // --- Import the committed fixture batch (adds 113 items incl.
         // playable videos for the restore-playback leg).
-        app.buttons["import-fixtures-button"].tap()
+        XCTAssertTrue(app.tapMoreMenuItem(label: "Import Fixtures"))
         let summary = app.otherElements["import-summary"]
         XCTAssertTrue(summary.waitForExistence(timeout: 600), "import summary never appeared")
         app.buttons["summary-done"].tap()
@@ -111,14 +101,12 @@ final class MigrationDeleteUITests: XCTestCase {
             "pager delete did not hide the aggregate")
 
         // --- Grid multi-select bulk delete: two stills.
-        moreMenuButton(app).tap()
-        let selectItem = app.buttons["Select"]
-        XCTAssertTrue(selectItem.waitForExistence(timeout: 10))
-        selectItem.tap()
+        XCTAssertTrue(app.tapMoreMenuItem(label: "Select"), "Select menu item missing")
         grid.cells.element(boundBy: 0).tap()
         grid.cells.element(boundBy: 1).tap()
         app.buttons["select-delete-button"].tap()
-        let confirmBulk = app.buttons["Remove 2 Items"]
+        // Confirmation-dialog buttons are double-exposed by SwiftUI.
+        let confirmBulk = app.buttons["Remove 2 Items"].firstMatch
         XCTAssertTrue(confirmBulk.waitForExistence(timeout: 10), "bulk confirm missing")
         confirmBulk.tap()
         XCTAssertTrue(
@@ -126,33 +114,35 @@ final class MigrationDeleteUITests: XCTestCase {
             "bulk delete did not hide 2 aggregates")
 
         // --- Recently Deleted shows the 3 aggregates.
-        moreMenuButton(app).tap()
-        let recentlyDeletedItem = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH 'Recently Deleted'")
-        ).firstMatch
-        XCTAssertTrue(recentlyDeletedItem.waitForExistence(timeout: 10))
-        recentlyDeletedItem.tap()
+        XCTAssertTrue(
+            app.tapMoreMenuItem(label: "Recently Deleted", prefixMatch: true),
+            "Recently Deleted menu item missing")
         let sheet = app.otherElements["recently-deleted"]
         XCTAssertTrue(sheet.waitForExistence(timeout: 10))
-        let rows = app.cells.matching(
-            NSPredicate(format: "identifier BEGINSWITH 'deleted-row-'"))
-        XCTAssertTrue(
-            waitUntil(timeout: 15) { rows.count == 3 },
+        // Row identifiers propagate onto every child element in
+        // SwiftUI Lists; the per-row Restore button's LABEL is the
+        // reliable row proxy.
+        let rows = app.buttons.matching(NSPredicate(format: "label == 'Restore'"))
+        if !waitUntil(timeout: 15, { rows.count == 3 }) {
+            print("E2EDBG sheet tree-begin")
+            print(app.debugDescription)
+            print("E2EDBG sheet tree-end")
+        }
+        XCTAssertTrue(rows.count == 3,
             "expected 3 aggregates in Recently Deleted; got \(rows.count)")
 
-        // Rows sort newest-deleted first: [still, still, video].
-        // Restore the VIDEO (last row); purge one still (first row).
-        let restoreButtons = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH 'restore-'"))
-        let videoRestore = restoreButtons.element(boundBy: restoreButtons.count - 1)
+        // Rows sort newest-deleted first; the pager-deleted playable
+        // video was deleted FIRST, so it is the LAST row. (The two
+        // bulk-deleted items are whatever cells XCUITest enumerated —
+        // cell order is not visual order, the CED-12 lesson.)
+        let videoRestore = rows.element(boundBy: rows.count - 1)
         videoRestore.tap()
         XCTAssertTrue(
             waitUntil(timeout: 15) { rows.count == 2 }, "restore did not clear the row")
 
-        let purgeButtons = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH 'purge-'"))
+        let purgeButtons = app.buttons.matching(NSPredicate(format: "label == 'Trash'"))
         purgeButtons.element(boundBy: 0).tap()
-        let confirmPurge = app.buttons["Remove Permanently"]
+        let confirmPurge = app.buttons["Remove Permanently"].firstMatch
         XCTAssertTrue(confirmPurge.waitForExistence(timeout: 10))
         confirmPurge.tap()
         XCTAssertTrue(
@@ -175,20 +165,13 @@ final class MigrationDeleteUITests: XCTestCase {
             waitUntil(timeout: 30) { itemCount(app) == 115 },
             "grid count not durable after relaunch; got \(String(describing: itemCount(app)))"
         )
-        moreMenuButton(app).tap()
-        let recentlyDeletedAfter = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH 'Recently Deleted'")
-        ).firstMatch
-        XCTAssertTrue(recentlyDeletedAfter.waitForExistence(timeout: 10))
         XCTAssertTrue(
-            recentlyDeletedAfter.label.contains("(1)"),
-            "soft-delete ledger not durable; label: \(recentlyDeletedAfter.label)")
-        recentlyDeletedAfter.tap()
+            app.tapMoreMenuItem(label: "Recently Deleted", prefixMatch: true),
+            "Recently Deleted menu item missing after relaunch")
         XCTAssertTrue(
             waitUntil(timeout: 15) {
-                app.cells.matching(
-                    NSPredicate(format: "identifier BEGINSWITH 'deleted-row-'")
-                ).count == 1
+                app.buttons.matching(NSPredicate(format: "label == 'Restore'"))
+                    .count == 1
             }, "Recently Deleted not durable across relaunch")
         app.buttons["recently-deleted-done"].tap()
 
