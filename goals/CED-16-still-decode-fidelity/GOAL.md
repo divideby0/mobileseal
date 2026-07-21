@@ -1,8 +1,12 @@
 ---
-status: draft
+status: promoted
 created: 2026-07-20T23:02:25-05:00
 author: cedric
 stacked_on: CED-15-media-export-share-import
+promoted: 2026-07-20T23:02:57-05:00
+issue_url: https://linear.app/cedric-personal/issue/CED-16/fix-still-decode-serving-embedded-previews
+linear_project: Mobileseal
+linear_project_id: cccebfd8-6d19-474b-852f-c87bf528dcf6
 ---
 
 # Fix Still Decode Serving Embedded Previews
