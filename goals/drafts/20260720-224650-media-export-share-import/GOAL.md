@@ -22,56 +22,95 @@ Sized M (grew from S with the share extension).
 ### Workstream A — export (the one deliberate custody exit)
 
 1. Share action on pager (single) and grid multi-select (bulk):
-   generic pre-share custody warning (iCloud-transit named; share
-   sheet cannot reveal destination) → UIActivityViewController with
-   byte-exact originals; Live Photos provide both files; item
-   providers stream from decrypted memory where the size allows, and
-   large items stage a temp plaintext file ONLY for the handoff —
-   created under the existing staging discipline, removed on
-   completion/cancel/crash-sweep, its lifecycle inside the custody
-   canary's audited claim.
-2. Lock interplay: an in-flight share sheet survives `.inactive`
-   (system UI exemption, like Face ID prompts); `.background` lock
-   cancels the share and sweeps staging.
+   generic pre-share custody warning → UIActivityViewController.
+   **Item contract, defined** (Codex B1/B5/Q1/A2): ALL exports stage
+   to file first — a dedicated `staging/export/` root (Codex B3 —
+   isolated from import's wipe-all) — and are handed to the sheet as
+   file-URL items via UIActivityItemSource with preserved original
+   filename (dedup-suffixed on collision) and correct UTI; no
+   in-memory streaming claim. Live Photos export as TWO separate
+   file items (still + video; true re-pairing needs PhotoKit write
+   auth we don't hold — documented, deferred). Custody boundary
+   (Codex A5): the canary claim ends at provider handoff — bytes a
+   chosen activity copies are the OS's.
+2. **ExportController owns the export lifecycle** (Codex B2):
+   registered in the coordinator lock path like PlaybackController —
+   lock cancels in-flight decrypt/writes, awaits open file handles,
+   then sweeps `staging/export/`. Lock interplay (Codex B4, replacing
+   the blanket claim): the share sheet survives `.inactive`; on
+   `.background`, REGARDLESS of the user's grace/off auto-lock
+   preference, an active export cancels and sweeps (export-specific
+   override — an open plaintext handoff never rides a grace window);
+   bytes already delivered to an activity are gone and the warning
+   copy says so.
 
 ### Workstream B — share extension (import from other apps)
 
-1. Share Extension target accepting images/videos (media UTIs only;
-   arbitrary file types are map fog). The extension NEVER unlocks and
-   runs no KDF (120 MB extension limit; extension-safe profiles per
-   the Argon2id research are unnecessary because no crypto happens):
-   it copies incoming items into an app-group container inbox
-   (`group.com.gmail.cedric.hurst.mobileseal`), Data-Protected,
-   with a manifest sidecar (source app, date, UTI).
-2. Main app: on next unlock of any gallery, "Import N staged items
-   into <this gallery>?" — accept routes through the existing
-   staging→import pipeline (dedup, thumbnails, padding all apply);
-   decline keeps them staged; a per-item discard exists. Inbox
-   participates in the launch crash-sweep and the custody canary
-   scope (it IS plaintext at rest until imported — documented as the
-   share-in staging window, Data-Protected, bounded by user action).
-3. Entitlements: app group + (if labels/keys need extension access —
-   they should NOT; extension touches no Keychain) minimal set;
-   xcodegen project updates.
+1. Share Extension target accepting images/videos (media UTIs
+   only). No unlock, no KDF (120 MB limit). **Inbox protocol,
+   defined** (Codex B6/B8/B9/B10/A1/A3): items copy inside the
+   `loadFileRepresentation` callback (file representations ONLY —
+   no data-loading fallback; concurrency 1; disk-full and
+   cancellation produce typed cleanup), preferring the live-photo
+   bundle representation first (mirror PickerMediaProvider's
+   order — no still/video duplication). Atomic commit: media file
+   fully written → hash+length computed → manifest (versioned
+   schema: UTI, byte length, BLAKE2 hash, pairing info, date;
+   source-app OPTIONAL) written LAST under a collision-resistant
+   name. Inbox states: incomplete → committed → claimed → imported /
+   discarded; the launch sweep removes ONLY incomplete/stale (the
+   app's wipe-all staging behavior explicitly does not apply);
+   quota: 2 GiB or 50 items — oldest committed items expire with a
+   notice; low-disk refuses new copies typed.
+2. Main app: inbox discovery on activation AND unlock AND gallery
+   switch, exactly-once prompt per batch (Codex A4): "Import N
+   staged items into <unlocked gallery>?" — accept claims the batch
+   atomically through the CED-14 switch authority (single
+   gallery-bound claim; a switch/lock during import follows the
+   normal import-interruption rules), validates manifest hash/length
+   before import, routes through the existing pipeline; decline
+   keeps committed items (within quota); per-item discard exists.
+3. Entitlements + app-group custody (Codex B7/B11): app group
+   `group.com.gmail.cedric.hurst.mobileseal` on BOTH targets;
+   per-file `.completeUnlessOpen` + backup exclusion applied
+   explicitly to inbox files (app-group containers inherit
+   neither); extension touches no Keychain. xcodegen grows the
+   extension product with its plist activation rule (media-only),
+   embedding, and bundle id
+   `com.gmail.cedric.hurst.mobileseal.share`. **Signing
+   feasibility is a stated residual** (Codex B11/Q7): simulator
+   proves functionality; the signed two-App-ID install with App
+   Groups joins the map's HITL checklist (paid personal teams
+   support App Groups; risk documented, not assumed away).
 
 ## Green gates
 
-1. `swift test` + app suites + `xcodebuild` (simulator + generic
-   device incl. the extension target) green; stacked wave diffs
-   `CED-14-multiple-galleries...HEAD` only.
-2. Export e2e (simulator): select 2 photos + 1 video → share →
-   custody warning → activity controller presents with correct item
-   count/types (destination taps are OS UI — out of test scope);
-   temp staging created only for the large-item path and swept on
-   completion, cancel, and simulated-crash relaunch; lock mid-share
-   cancels + sweeps.
-3. Share-in pipeline: extension inbox logic unit-tested (fixture
-   items → inbox manifest → main-app import prompt → import runs the
-   real pipeline → inbox cleared; decline/discard paths; crash-sweep
-   of stale inbox items); real share-from-Photos smoke joins the
-   map's HITL checklist.
-4. Custody: canary scan extended over the app-group inbox and export
-   staging; no plaintext outside their documented windows.
+1. `swift test` + app suites + `xcodebuild` (simulator incl.
+   extension target; generic device build for the APP —
+   extension-signed installs are the HITL residual) green; stacked
+   wave diffs the parent's LOCKED head...HEAD only (base SHA
+   recorded at launch — Codex A6).
+2. Export e2e with a **provider-consumption seam** (Codex B13/Q8):
+   tests invoke the exported items' load handlers directly
+   (simulating Photos/Files/AirDrop consumption) — correct bytes,
+   filename, UTI per item type (still / video / Live Photo pair);
+   completion, cancellation, and mid-share lock each cancel + sweep
+   `staging/export/` (verified incl. simulated-crash relaunch); the
+   grace/off-preference background override fires.
+3. Share-in pipeline: inbox protocol unit/integration tested via the
+   extension's writer as a library (atomic manifest-last commit;
+   truncated/mismatched/malformed manifests rejected before import;
+   states + sweep rules + quota/expiry + disk-full; live-photo
+   preference order; concurrent-invocation names) → main-app prompt
+   → real pipeline import → inbox cleared; decline/discard;
+   extension-process termination mid-copy leaves only
+   incomplete-state files, swept. Real share-from-Photos +
+   signed-install checks join the HITL checklist.
+4. Custody: canary scan extended over `staging/export/` and the
+   app-group inbox (protection attributes + backup-exclusion flags
+   asserted; device enforcement = stated residual); no plaintext
+   outside documented windows; the canary claim's provider-handoff
+   boundary stated in the test.
 5. Blind multi-tool review wave (all four reviewers, stacked base)
    completed and reconciled.
 
@@ -93,9 +132,16 @@ both cedric's explicit design. Media types only; files-types fog.
 
 ## Executor notes (self-sufficiency)
 
-- **Stacked goal**: review-wave diff base is `CED-14-multiple-galleries`
-  (from `stacked_on` frontmatter), NEVER main — do not re-review the
-  parent's diff. Parent is expected locked-but-unmerged at launch.
+- **Stacked goal**: diff base is the parent's LOCKED head (the
+  orchestrator re-runs the rebase onto the locked
+  `CED-14-multiple-galleries` before launch and records the base
+  SHA here) — never main, never a moving parent (Codex A6/B12). The
+  import-prompt/switch integration binds to the parent's ACTUAL
+  shipped switchboard API as found in the rebased tree, not the
+  parent GOAL.md's wording; if the shipped shape differs materially,
+  say so in RESULT.md rather than forcing the plan's wording.
+- Cross-gallery move orchestration is a NON-GOAL (Codex A7): no
+  automated delete-after-export, no destination selection.
 - Formatter scoped to THIS goal folder only.
 - Extension targets in xcodegen need explicit product/entitlement
   stanzas; regenerate after adding files.
