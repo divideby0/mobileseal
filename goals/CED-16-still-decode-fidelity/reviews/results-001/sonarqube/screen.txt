@@ -1,0 +1,51 @@
+  * The filename contains "test." or "tests."
+  * Any directory in the file path is named: "doc", "docs", "test", "tests", "mock" or "mocks"
+  * Any directory in the file path has a name ending in "test" or "tests"
+
+01:47:54.505 INFO  Start fetching files for the text and secrets analysis
+01:47:54.517 INFO  Using Git CLI to retrieve dirty files
+01:47:54.533 INFO  Retrieving language associated files and files included via "sonar.text.inclusions" that are tracked by git
+01:47:54.538 INFO  Starting the text and secrets analysis
+01:47:54.539 INFO  33 source files to be analyzed for the text and secrets analysis
+01:47:54.582 INFO  33/33 source files have been analyzed for the text and secrets analysis
+01:47:54.585 INFO  Sensor TextAndSecretsSensor [text] (done) | time=239ms
+01:47:54.587 INFO  ------------- Run sensors on project
+01:47:54.655 INFO  Sensor Zero Coverage Sensor
+01:47:54.658 INFO  Sensor Zero Coverage Sensor (done) | time=3ms
+01:47:54.658 INFO  ------------- Gather SCA dependencies on project
+01:47:54.661 INFO  Dependency analysis skipped
+01:47:54.663 INFO  CPD Executor Calculating CPD for 0 files
+01:47:54.663 INFO  CPD Executor CPD calculation finished (done) | time=0ms
+01:47:54.671 INFO  SCM revision ID '6f59216e3393315c49d7e5f3e48c6a6f4ccb9365'
+01:47:54.754 INFO  Analysis report generated in 86ms, dir size=259.1 kB
+01:47:54.767 INFO  Analysis report compressed in 13ms, zip size=27.1 kB
+01:47:54.928 INFO  Analysis report uploaded in 161ms
+01:47:54.929 INFO  ANALYSIS SUCCESSFUL, you can find the results at: http://localhost:9283/dashboard?id=mobileseal-CED-16-still-decode-fidelity
+01:47:54.929 INFO  Note that you will be able to access the updated dashboard once the server has processed the submitted analysis report
+01:47:54.929 INFO  More about the report processing at http://localhost:9283/api/ce/task?id=696b2b96-25ac-4589-b684-ed348045c2e1
+01:47:54.934 INFO  Analysis total time: 7.818 s
+01:47:54.934 INFO  SonarScanner Engine completed successfully
+01:47:57.089 INFO  EXECUTION SUCCESS
+01:47:57.090 INFO  Total time: 13.297s
+
+\u2500\u2500 waiting for server-side processing (compute task 696b2b96-25ac-4589-b684-ed348045c2e1) \u2500\u2500
+ce poll 1: IN_PROGRESS
+ce poll 2: SUCCESS
+compute task 696b2b96-25ac-4589-b684-ed348045c2e1 processed
+
+\u2500\u2500 open issues (also written to FINDINGS.md) \u2500\u2500
+# SonarQube findings
+
+Ephemeral project: mobileseal-CED-16-still-decode-fidelity (per-branch isolation, EVA-11;
+deleted at merge cleanup). Scan processed as compute task 696b2b96-25ac-4589-b684-ed348045c2e1.
+
+Scope note: this is the OPEN snapshot of that project after scanning
+this checkout; changed files outside the scan sources are not covered.
+
+total open: 0
+
+REVIEW COMPLETE
+=== SONARQUBE REVIEWER DONE ===
+
+ openclaw  .../CED-16-still-decode-fidelity   CED-16-still-decode-fidelity ?⇡  ⎈ gke-spanland-prod   01:48 
+❯

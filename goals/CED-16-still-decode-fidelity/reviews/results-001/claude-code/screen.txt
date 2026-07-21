@@ -1,0 +1,51 @@
+
+  Made 1 scratchpad edit +49, ran 2 shell commands
+
+⏺ Verification confirms all test assumptions hold (HEIC→4096×2730 regenerate, small HEIC→native, DNG→routes to preview path). Let me check when decodeFullStill fires, since the
+  memory footprint per still jumps from ~0.5MB to ~44MB — I want to confirm neighbors aren't decoded eagerly.
+
+  Read 1 file, ran 1 shell command
+
+⏺ decodeFullStill fires from viewDidLoad (line 101), not from didLand — so UIPageViewController's pre-instantiated neighbor pages also trigger it. Let me confirm the grid path
+  is intentionally separate and check the pager's neighbor behavior context.
+
+  Read 1 file
+
+⏺ Grid decode (ThumbnailPipeline.decode) already used Always at a small ceiling and is untouched — correctly out of scope. I have enough to write the review. Let me record my
+  findings.
+
+⏺ Write(~/src/divideby0/mobileseal/.worktrees/CED-16-still-decode-fidelity/goals/CED-16-still-decode-fidelity/reviews/results-001/claude-code/FINDINGS.md)
+  ⎿  Wrote 78 lines to ../../../../Users/openclaw/src/divideby0/mobileseal/.worktrees/CED-16-still-decode-fidelity/goals/CED-16-still-decode-fidelity/reviews/results-001/cl
+     aude-code/FINDINGS.md
+       1 # Blind review — CED-16 still-decode fidelity (claude-code)
+       2
+       3 ## Verdict
+       4
+       5 The fix is correct, minimal, and matches the goal spec. `StillDecoder`
+       6 now routes normal images through `kCGImageSourceCreateThumbnailFromImageAlways`
+       7 (regenerating from the full-size image at the existing 4096 ceiling)
+       8 while RAW/DNG containers keep the `IfAbsent` embedded-preview path,
+       9 detected via `UTType.rawImage` conformance with a per-index
+      10 RAW/DNG-dictionary fallback. I independently reproduced the decode
+     … +69 lines
+
+⏺ Review complete. I wrote my findings to the required path.
+
+  Summary of the blind review: The CED-16 fix is correct and well-scoped. StillDecoder now routes normal images through ...ThumbnailFromImageAlways (regenerating at the 4096
+  ceiling) while RAW/DNG keeps the embedded-preview path via UTType.rawImage conformance with a RAW/DNG-dictionary fallback. I independently ran ImageIO against the three
+  committed fixtures and confirmed every StillDecoderTests assertion holds (6000×4000 HEIC → 4096×2730, 1200×800 → native, DNG → routes to preview path). Scope item 2 (cache
+  purge) is satisfied by verification — decoded stills are never persisted, and the grid uses a separate small-ceiling decoder. The UI-test count deltas (+2) are internally
+  consistent.
+
+  One minor finding: decodeFullStill fires in viewDidLoad rather than didLand, so UIPageViewController's preloaded neighbor pages each hold a ~44 MiB 4096-px bitmap (was ~0.5
+  MiB). Not a correctness bug and within CED-11's design intent, but the per-still footprint jumped ~90×, so the ceiling comment's "one on-screen still" rationale no longer
+  matches — worth either deferring the decode to didLand or updating the comment. No blockers.
+
+✳ Sock-hopping… (running stop hooks… 2/3 · 5m 1s · ↓ 19.5k tokens)
+                                                                                                                                                             ◎ /goal active (5m)
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 4.8  d9c367eb  Ctx: 78.9k  8.0%  Session: 5m  Out: 51.8k  Total: 2.3M 
+   cwd: /private/tmp/evie-review-CED-16-claude-code-7372f5a9-d6IXQN/tree  ⎇ no git  (+0,-0) 
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent

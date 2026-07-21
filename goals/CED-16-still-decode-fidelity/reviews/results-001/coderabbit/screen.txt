@@ -1,0 +1,51 @@
+Writing review comments... 3m 20s elapsed - still working - 1 finding so far
+Writing review comments... 4m 20s elapsed - still working - 1 finding so far
+Writing review comments... 5m 20s elapsed - still working - 1 finding so far
+
+────────────────────────────────────────
+Review complete
+1 finding ✔
+
+Minor    1
+
+13 files reviewed:
+- App/Fixtures/still-embedded-1200x800.heic
+- App/Fixtures/still-embedded-6000x4000.heic
+- App/Fixtures/still-preview-432x288.dng
+- App/MobileSeal/Detail/StillDecoder.swift
+- App/MobileSealTests/StillDecoderTests.swift
+- App/MobileSealUITests/E2EFlowUITests.swift
+- App/MobileSealUITests/MigrationDeleteUITests.swift
+- MobileSeal.xcodeproj/project.pbxproj
+- Scripts/generate-still-fixtures.swift
+- goals/CED-16-still-decode-fidelity/GOAL.md
+... and 3 more files
+────────────────────────────────────────
+
+Print all AI prompts: coderabbit review --show-prompts
+
+\u2500\u2500 capturing AI prompts into PROMPTS.md (auxiliary; review already complete) \u2500\u2500
+Replaying 1 AI prompt from your last review on CED-16-still-decode-fidelity.
+
+────────────────────────────────────────────────────────────────────────
+  minor [Functional Correctness]
+  → goals/CED-16-still-decode-fidelity/GOAL.md:41-42
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @goals/CED-16-still-decode-fidelity/GOAL.md around lines 41 - 42,
+  Update the raw-dictionary key reference in the StillDecoder-related
+  documentation or implementation to use the valid ImageIO symbol
+  kCGImagePropertyRawDictionary instead of
+  kCGImageSourcePropertyRawDictionary, preserving the intended raw metadata
+  distinction.
+
+captured 1051 bytes of prompts
+
+REVIEW COMPLETE
+=== CODERABBIT REVIEWER DONE ===
+
+ openclaw  .../CED-16-still-decode-fidelity   CED-16-still-decode-fidelity ?⇡  ⎈ gke-spanland-prod   01:53 
+❯
