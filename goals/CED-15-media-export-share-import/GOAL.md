@@ -138,10 +138,9 @@ both cedric's explicit design. Media types only; files-types fog.
 
 ## Executor notes (self-sufficiency)
 
-- **Stacked goal**: diff base is the parent's LOCKED head (the
-  orchestrator re-runs the rebase onto the locked
-  `CED-14-multiple-galleries` before launch and records the base
-  SHA here) — never main, never a moving parent (Codex A6/B12). The
+- **Stacked goal**: diff base is the parent's LOCKED head —
+  `dc4e38943c22e150f7794f8e31b664099a56da61`
+  (`CED-14-multiple-galleries`, locked 2026-07-21T00:04) — never main, never a moving parent (Codex A6/B12). The
   import-prompt/switch integration binds to the parent's ACTUAL
   shipped switchboard API as found in the rebased tree, not the
   parent GOAL.md's wording; if the shipped shape differs materially,
