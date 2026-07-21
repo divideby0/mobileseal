@@ -46,6 +46,13 @@ sharing, iPad, visionOS: beyond this map.
   optional name/cover labels (Keychain-key-encrypted, never synced);
   per-gallery settings/Recently-Deleted/trust scopes; single-gallery
   migration to registry entry #1.
+- **Media Export / Save-Out** (task, S) — share-sheet export of
+  selected items (decrypted originals) to Files or Photos: the
+  vault's only deliberate custody exit, explicit confirmation, with
+  an iCloud-Photos-sync warning and Files/"On My iPhone" offered as
+  the non-cloud path. Also the manual cross-gallery move enabler
+  (export → reimport → delete; cedric's design, 2026-07-20).
+  Runs after Multiple Galleries (one loop at a time).
 - **Local Peer Sync** (task, XL) — Multipeer/Bonjour hash-diff
   reconciliation over the signed manifest; two-in-process-peer
   tests; real two-device verification (HITL). (blocked by: Multiple
@@ -104,9 +111,12 @@ sharing, iPad, visionOS: beyond this map.
 
 ## Not yet specified
 
-- Cross-gallery move/copy: staged sealed-copy re-import under the
-  target DEK (two-unlock flow) — deferred from the MG grill; promote
-  if daily use demands.
+- Cross-gallery move/copy: covered manually once Media Export
+  ships (export → reimport → delete); the in-app staged two-unlock
+  flow stays fog, promoted only if the manual path proves too
+  annoying.
+- TestFlight distribution (wireless installs to own devices) —
+  convenience ticket if cable-to-Xcode gets old.
 - Delete-gallery flow (a populated gallery's deletion is a
   GC/sharing-adjacent question).
 - Vault-integrity unlock copy (CED-13 residual:
