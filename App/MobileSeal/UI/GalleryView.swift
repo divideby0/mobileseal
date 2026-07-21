@@ -49,7 +49,7 @@ struct GalleryView: View {
                 selectionMode
                     ? (selection.isEmpty
                         ? "Select Items" : "\(selection.count) Selected")
-                    : "MobileSeal"
+                    : (store.selectedGalleryName ?? "MobileSeal")
             )
             .navigationBarTitleDisplayMode(selectionMode ? .inline : .automatic)
             .toolbar {
@@ -71,6 +71,21 @@ struct GalleryView: View {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if selectionMode {
+                        // Cover opt-in (CED-14 WS B.2, grill Q1):
+                        // exactly one selected item can become this
+                        // gallery's device-local cover — an explicit
+                        // per-device pre-unlock leak the user chooses.
+                        Button {
+                            if let id = selection.first {
+                                store.setCover(from: id)
+                            }
+                            selectionMode = false
+                            selection = []
+                        } label: {
+                            Label("Set Cover", systemImage: "photo.badge.checkmark")
+                        }
+                        .disabled(selection.count != 1)
+                        .accessibilityIdentifier("select-set-cover-button")
                         Button(role: .destructive) {
                             confirmBulkDelete = true
                         } label: {
@@ -102,6 +117,19 @@ struct GalleryView: View {
                                     "Recently Deleted (\(store.recentlyDeleted.count))",
                                     systemImage: "trash")
                             }
+                            if store.canSwitchGalleries {
+                                // Switch = back to the list, which
+                                // LOCKS this gallery first (full
+                                // teardown; the list holds no DEK —
+                                // CED-14 WS A.2, grill Q2).
+                                Button {
+                                    store.backToList()
+                                } label: {
+                                    Label(
+                                        "Switch Gallery",
+                                        systemImage: "square.grid.2x2")
+                                }
+                            }
                             Button {
                                 showSettings = true
                             } label: {
@@ -118,6 +146,13 @@ struct GalleryView: View {
                                 // Gate 3's 500-photo fixture gallery.
                                 Button("Seed 500") {
                                     Task { await store.coordinator.seedGallery(count: 500) }
+                                }
+                                // CED-14 gate 2's small per-gallery
+                                // import (real commits through the
+                                // Gallery actor; batch fidelity is
+                                // E2EFlowUITests' job).
+                                Button("Seed 12") {
+                                    Task { await store.coordinator.seedGallery(count: 12) }
                                 }
                             }
                         } label: {

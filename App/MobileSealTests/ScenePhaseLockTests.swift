@@ -24,7 +24,7 @@ import VaultCore
         // writing lock prefs into .standard would poison later real
         // launches on this simulator (bit the e2e gate).
         let defaults = UserDefaults(suiteName: "scenephase-tests-\(UUID().uuidString)")!
-        let store = VaultStore(
+        let store = TestSupport.makeStore(
             coordinator: coordinator, container: container, defaults: defaults)
         await store.bootstrap()
         _ = await TestSupport.waitUntil { store.phase == .needsSetup }

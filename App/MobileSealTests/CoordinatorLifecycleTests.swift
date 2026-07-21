@@ -14,12 +14,16 @@ import VaultCore
         let vault = try await UnlockedVault.create()
         defer { Task { await vault.destroy() } }
 
-        // Calibration record persisted at creation (WS D.4).
-        let record = vault.container.vaultRoot.appendingPathComponent("calibration.json")
+        // Calibration record persisted PER GALLERY at creation
+        // (WS D.4; CED-14 WS A.3).
+        let dir = try #require(vault.container.existingGalleryDirectory())
+        let galleryID = try SealedVault.readStructuralMeta(directory: dir).galleryID
+        let record = vault.container.calibrationURL(galleryID: galleryID)
         #expect(FileManager.default.fileExists(atPath: record.path))
 
-        // Relaunch: a fresh coordinator over the same container routes
-        // to the unlock screen, not setup.
+        // Relaunch: a fresh coordinator over the same container,
+        // selection driven directly (the switchboard's job in-app
+        // since CED-14).
         await vault.coordinator.teardown()
         _ = await TestSupport.waitUntil { vault.sink.phase == .locked }
 
@@ -31,6 +35,7 @@ import VaultCore
         let sink2 = RecordingSink()
         await second.attach(sink: sink2)
         await second.start()
+        await second.select(directory: dir)
         #expect(await TestSupport.waitUntil { sink2.phase == .locked })
 
         await second.unlock(password: UnlockedVault.password)
@@ -87,6 +92,8 @@ import VaultCore
         let sink2 = RecordingSink()
         await second.attach(sink: sink2)
         await second.start()
+        let dir = try #require(vault.container.existingGalleryDirectory())
+        await second.select(directory: dir)
         _ = await TestSupport.waitUntil { sink2.phase == .locked }
         await second.unlock(password: UnlockedVault.password)
         #expect(

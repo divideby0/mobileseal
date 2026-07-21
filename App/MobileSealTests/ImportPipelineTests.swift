@@ -122,7 +122,7 @@ import VaultCore
         #expect(vault.sink.lastSummary?.importedCount == 1)
     }
 
-    @Test func lockMidBatchCancelsCleansAndReportsInterrupted() async throws {
+    @Test func lockMidBatchCancelsCleansAndDropsTornDownSummary() async throws {
         let vault = try await UnlockedVault.create()
         defer { Task { await vault.destroy() } }
 
@@ -133,14 +133,18 @@ import VaultCore
             providers: [slow]
                 + (try providers(["fixture-0024.jpg", "fixture-0026.jpg"])))
         // Lock while item 0 is still "downloading" (grill Q8:
-        // cancel-and-cleanup + resume prompt).
+        // cancel-and-cleanup).
         try? await Task.sleep(for: .milliseconds(200))
         await vault.coordinator.lock()
         #expect(await TestSupport.waitUntil { vault.sink.phase == .locked })
-        #expect(await TestSupport.waitUntil { vault.sink.lastSummary != nil })
-        let summary = try #require(vault.sink.lastSummary)
-        #expect(summary.interrupted)
-        #expect(summary.importedCount == 0)
+        // A torn-down session's summary is DROPPED at the coordinator
+        // (CED-14 WS A.2): its outcomes carry provider filenames, and
+        // after a gallery switch it would surface old-gallery residue
+        // while a DIFFERENT gallery is unlocked. (The store already
+        // dropped it in the single-gallery app; the coordinator-level
+        // delivery this test used to pin was unreachable in-app.)
+        try? await Task.sleep(for: .milliseconds(500))
+        #expect(vault.sink.lastSummary == nil)
         // Staging wiped by the lock path (gate 4's cancellation leg).
         let staged = (try? FileManager.default.contentsOfDirectory(
             at: vault.container.stagingDir, includingPropertiesForKeys: nil)) ?? []

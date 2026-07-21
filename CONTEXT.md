@@ -72,6 +72,26 @@ portable crypto core) is the bounded context these terms belong to;
   Tombstones for the whole aggregate (purge or expiry). Delete always
   targets the media AGGREGATE (original + linked thumbnail +
   Live-Photo video), never a bare entry.
+- **Gallery registry** (CED-14) — the app-side discovery of galleries
+  under the vault root: identity is the AUTHORITATIVE `gallery.meta`
+  UUID (directory path is location only); a `registry.json` sidecar
+  records created-dates only and is never authoritative for
+  existence. Duplicate UUIDs (copied directories) and unreadable
+  metas surface as error tiles, never silent loss.
+- **Switchboard** (CED-14) — the process-wide actor that owns every
+  select/unlock/lock/create transition as FIFO-serialized
+  transactions, enforcing one-unlocked-at-a-time (exactly one live
+  DEK): the old gallery's FULL teardown (participants swept, UI state
+  cleared, custodian drained, key zeroed) completes before a target's
+  KDF may begin. An APP policy layered above the per-path
+  VaultProcessRegistry.
+- **Device-local label** (CED-14) — a gallery's optional name + cover
+  photo, THIS device only (like a contact nickname): AEAD-sealed
+  under a dedicated `WhenUnlockedThisDeviceOnly` Keychain key with
+  gallery-UUID AAD, ciphertext in Application Support (may ride
+  backup; restoring without the key = graceful loss → relabel). Never
+  written into any gallery-format file, never synced. Covers render
+  pre-unlock by explicit opt-in and purge with the privacy shield.
 - **Sealed plane** — the ciphertext-only API surface (`SealedVault`):
   enumerate/copy chunks, audit addresses, parse `gallery.meta`
   structurally — all without the DEK. What sync/backup tooling

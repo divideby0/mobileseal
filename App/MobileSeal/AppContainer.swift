@@ -38,6 +38,12 @@ struct AppContainer: Sendable {
     /// back with a restored vault nor follow the vault to a new
     /// device.
     let deviceLocalDir: URL
+    /// Device-local gallery LABELS (CED-14 WS B.2): AEAD ciphertext
+    /// under the Keychain label key. Deliberately NOT backup-excluded
+    /// (unlike DeviceLocal): the ciphertext MAY ride backup — the key
+    /// is `ThisDeviceOnly`, so the DEFINED restore outcome is graceful
+    /// loss (labels reset to generic tiles; recovery = relabel).
+    let labelsDir: URL
 
     /// Standard container in Application Support.
     static func standard() throws -> AppContainer {
@@ -54,17 +60,19 @@ struct AppContainer: Sendable {
         galleriesDir = vaultRoot.appendingPathComponent("galleries", isDirectory: true)
         stagingDir = base.appendingPathComponent("Staging", isDirectory: true)
         deviceLocalDir = base.appendingPathComponent("DeviceLocal", isDirectory: true)
+        labelsDir = base.appendingPathComponent("Labels", isDirectory: true)
         try prepare()
     }
 
     private func prepare() throws {
         let fm = FileManager.default
-        for dir in [vaultRoot, galleriesDir, stagingDir, deviceLocalDir] {
+        for dir in [vaultRoot, galleriesDir, stagingDir, deviceLocalDir, labelsDir] {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         Self.applyProtection(.completeUnlessOpen, to: vaultRoot)
         Self.applyProtection(.completeUnlessOpen, to: stagingDir)
         Self.applyProtection(.completeUnlessOpen, to: deviceLocalDir)
+        Self.applyProtection(.completeUnlessOpen, to: labelsDir)
         // Vault root participates in backup (grill Q7): assert the
         // exclusion flag is NOT set rather than setting anything.
         // Staging is transient plaintext workspace — never back it up.
@@ -98,6 +106,51 @@ struct AppContainer: Sendable {
     func recentlyDeletedURL(galleryID: UUID) -> URL {
         deviceLocalDir.appendingPathComponent(
             "recently-deleted-\(galleryID.uuidString.lowercased()).json")
+    }
+
+    // MARK: - CED-14 per-gallery state locations (WS A.3 ownership table)
+
+    /// The gallery registry's created-date sidecar (CED-14 WS B.1):
+    /// gallery UUID → created-at ONLY. Never authoritative for
+    /// existence (the filesystem scan is), never names or covers
+    /// (labels are device-local). Lives in the vault root, so the
+    /// dates ride ciphertext backup — they are not secret.
+    var registryURL: URL {
+        vaultRoot.appendingPathComponent("registry.json")
+    }
+
+    /// Per-gallery KDF calibration record (CED-14 WS A.3, Codex B5:
+    /// the single `calibration.json` becomes per-gallery records).
+    func calibrationURL(galleryID: UUID) -> URL {
+        vaultRoot.appendingPathComponent(
+            "calibration-\(galleryID.uuidString.lowercased()).json")
+    }
+
+    /// The pre-CED-14 single global calibration record — migration
+    /// source only (becomes gallery #1's record).
+    var legacyCalibrationURL: URL {
+        vaultRoot.appendingPathComponent("calibration.json")
+    }
+
+    /// One gallery's sealed device-local label record (CED-14 WS B.2).
+    func labelURL(galleryID: UUID) -> URL {
+        labelsDir.appendingPathComponent(
+            "label-\(galleryID.uuidString.lowercased()).sealed")
+    }
+
+    /// Every directory under galleries/ carrying a `gallery.meta`,
+    /// sorted by basename for deterministic ordering (CED-14 WS A.1 —
+    /// the registry's discovery scan; identity comes from the meta
+    /// UUID, the path is location only).
+    func galleryDirectories() -> [URL] {
+        let fm = FileManager.default
+        guard
+            let entries = try? fm.contentsOfDirectory(
+                at: galleriesDir, includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles])
+        else { return [] }
+        return entries.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .filter { fm.fileExists(atPath: $0.appendingPathComponent("gallery.meta").path) }
     }
 
     /// Directory-level Data Protection: files created inside inherit

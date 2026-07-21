@@ -5,10 +5,32 @@ struct SettingsView: View {
     @Bindable var store: VaultStore
     @Environment(\.dismiss) private var dismiss
     @State private var calibration: KDFCalibrator.Record?
+    @State private var galleryName = ""
+    @State private var showCreate = false
 
     var body: some View {
         NavigationStack {
             Form {
+                // CED-14 WS B.1/B.2: the device-local gallery name and
+                // the one-gallery user's "New Gallery" affordance
+                // (plan review Q16 — the list is root only when more
+                // than one gallery exists).
+                Section {
+                    TextField("Gallery name (this device only)", text: $galleryName)
+                        .accessibilityIdentifier("gallery-name-field")
+                        .onSubmit { store.setGalleryName(galleryName) }
+                    Button("New Gallery…") {
+                        showCreate = true
+                    }
+                    .accessibilityIdentifier("settings-new-gallery")
+                } header: {
+                    Text("Gallery")
+                } footer: {
+                    Text(
+                        "The name is stored only on this device, encrypted under a device-bound key — never inside the gallery, never synced. It labels this gallery on the switcher list before unlock."
+                    )
+                }
+
                 Section {
                     Picker(
                         "Lock when leaving the app",
@@ -84,13 +106,21 @@ struct SettingsView: View {
             }
             .task {
                 calibration = store.loadCalibrationRecord()
+                galleryName = store.selectedGalleryName ?? ""
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("Done") {
+                        store.setGalleryName(galleryName)
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("settings-done")
                 }
+            }
+            .sheet(isPresented: $showCreate) {
+                CreateGalleryView(store: store)
             }
         }
     }

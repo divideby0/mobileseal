@@ -135,6 +135,10 @@ import VaultCore
         let sink2 = RecordingSink()
         await second.attach(sink: sink2)
         await second.start()
+        // Selection is the switchboard's job since CED-14; drive it
+        // directly at this coordinator-level fixture.
+        let dir = try #require(vault.container.existingGalleryDirectory())
+        await second.select(directory: dir)
         await second.unlock(password: UnlockedVault.password)
         let unlocked = await TestSupport.waitUntil {
             sink2.phase == .unlocked(importing: false)

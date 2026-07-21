@@ -137,6 +137,13 @@ actor VaultCoordinator {
     private let deviceKeyStore: any DeviceKeyStore
     /// Human-readable name recorded in trust-list registrations.
     private let deviceName: String
+    /// ONE rollback-state store instance for the coordinator's whole
+    /// life (CED-14 WS A.3, plan review B6): the file store's internal
+    /// per-gallery keying is correct, but a second instance over the
+    /// same file would race unsynchronized read-modify-writes and
+    /// could lose another gallery's observations — the CED-13
+    /// fail-closed detector's ground truth. Never construct another.
+    private let rollbackStore: any RollbackStateStore
     private weak var sink: (any VaultUISink)?
 
     private var session: UnlockSession?
@@ -166,11 +173,14 @@ actor VaultCoordinator {
     init(
         container: AppContainer, calibration: CalibrationRunner? = nil,
         deviceKeyStore: (any DeviceKeyStore)? = nil,
-        deviceName: String? = nil
+        deviceName: String? = nil,
+        rollbackStore: (any RollbackStateStore)? = nil
     ) {
         self.container = container
         self.deviceKeyStore = deviceKeyStore ?? KeychainDeviceKeyStore()
         self.deviceName = deviceName ?? "This Device"
+        self.rollbackStore = rollbackStore ?? FileRollbackStateStore(
+            fileURL: container.rollbackStateURL)
         if let calibration {
             self.calibration = calibration
         } else if UITestSupport.isUITestMode {
@@ -203,38 +213,74 @@ actor VaultCoordinator {
         lockParticipants.append(participant)
     }
 
-    // MARK: - Startup
+    /// Registers an additional participant in the ONE lock path
+    /// (CED-14 WS A.2, plan review B2): the thumbnail pipeline rides
+    /// here so that EVERY teardown — user lock, scene lock, idle
+    /// backstop, gallery switch — purges decoded thumbnails before
+    /// the custodian drain, structurally (nothing can call a "raw"
+    /// coordinator lock that skips it).
+    func attachLockParticipant(_ participant: any VaultLockParticipant) {
+        lockParticipants.append(participant)
+    }
 
-    /// Launch: wipe staging (crash-path custody — gate 4), then route
-    /// to setup or unlock. IDEMPOTENT — only the `.starting` phase may
-    /// route: SwiftUI re-runs the root `.task` when a full-screen
-    /// UIKit presentation detaches and re-attaches the hosting view,
-    /// and a second `start()` mid-session must not re-route an
-    /// unlocked vault to `.locked` (CED-12 pager gate found this
+    // MARK: - Startup + selection (CED-14 WS A.2)
+
+    /// Launch: wipe staging (crash-path custody — gate 4). Gallery
+    /// DISCOVERY no longer lives here — the switchboard owns the
+    /// registry scan and selection (plan review B1). IDEMPOTENT — only
+    /// the `.starting` phase may route: SwiftUI re-runs the root
+    /// `.task` when a full-screen UIKit presentation detaches and
+    /// re-attaches the hosting view (CED-12 pager gate found this
     /// live).
     func start() async {
         guard phase == .starting else { return }
         container.wipeStaging()
-        if let dir = container.existingGalleryDirectory() {
-            galleryDirectory = dir
-            phase = .locked
-        } else {
-            phase = .needsSetup
-        }
+        phase = .needsSetup
         await publishPhase()
     }
 
-    // MARK: - Create (calibrate-at-creation, GOAL WS D.4)
+    /// Targets one gallery (switchboard-only entry): the coordinator
+    /// becomes that gallery's locked session machine. Legal only while
+    /// no session is live — the switchboard serializes teardown first.
+    func select(directory: URL) async {
+        switch phase {
+        case .starting, .needsSetup, .locked, .galleryError:
+            galleryDirectory = directory
+            phase = .locked
+            await publishPhase()
+        default:
+            assertionFailure("select while a session may be live: \(phase)")
+        }
+    }
 
-    func createGallery(password: String) async {
-        guard phase == .needsSetup else { return }
+    /// Clears the target (switchboard-only entry, same legality rule).
+    func deselect() async {
+        switch phase {
+        case .starting, .needsSetup, .locked, .galleryError:
+            galleryDirectory = nil
+            phase = .needsSetup
+            await publishPhase()
+        default:
+            assertionFailure("deselect while a session may be live: \(phase)")
+        }
+    }
+
+    // MARK: - Create (calibrate-at-creation, GOAL WS D.4; per-gallery
+    // KDF calibration per CED-14 WS A.1 — the CED-11 calibrator runs
+    // for EVERY new gallery, and its record persists per gallery ID)
+
+    /// Creates a gallery and adopts it unlocked. Returns the new
+    /// gallery's authoritative `gallery.meta` UUID (nil on failure) so
+    /// the switchboard can record creation + apply an optional label.
+    @discardableResult
+    func createGallery(password: String) async -> UUID? {
+        guard phase == .needsSetup else { return nil }
         phase = .creating
         await publishPhase()
 
         let scratch = container.stagingDir
             .appendingPathComponent("calibration-\(UUID().uuidString)", isDirectory: true)
         let (params, record) = calibration(scratch)
-        persistCalibrationRecord(record)
 
         do {
             let dir = container.newGalleryDirectory()
@@ -243,12 +289,15 @@ actor VaultCoordinator {
             let vault = try SealedVault.create(
                 at: dir, password: pw, kdfParams: params,
                 identity: identity, deviceName: deviceName)
+            persistCalibrationRecord(record, galleryID: vault.meta.galleryID)
             galleryDirectory = dir
             await adoptUnlocked(vault: vault, password: password)
+            return vault.meta.galleryID
         } catch {
             phase = .needsSetup
             await publishPhase()
             await notifyUnlockFailure(mapUnlockError(error))
+            return nil
         }
     }
 
@@ -290,7 +339,6 @@ actor VaultCoordinator {
         do {
             let pw = try SecureBytes(nfcNormalizedPassword: password)
             let identity = try deviceKeyStore.loadOrCreateIdentity()
-            let rollbackStore = FileRollbackStateStore(fileURL: container.rollbackStateURL)
             s = try vault.unlock(
                 password: pw, identity: identity, deviceName: deviceName,
                 rollbackStore: rollbackStore, acceptRollback: acceptRollback)
@@ -535,17 +583,33 @@ actor VaultCoordinator {
 
         let engine = ImportEngine(gallery: gallery, container: container)
         let existing = index.originalContentHashes()
-        let sink = self.sink
         importTask = Task { [weak self] in
             let summary = await engine.run(providers: providers, existingHashes: existing) {
-                progress in
-                await MainActor.run { sink?.importProgressed(progress) }
+                [weak self] progress in
+                await self?.publishImportProgress(progress)
             }
             await self?.finishImport(summary)
         }
     }
 
+    /// Progress hops through the actor so a CANCELLED import (lock or
+    /// gallery switch mid-batch) cannot keep painting old-session
+    /// progress — with its provider filenames — over the lock screen
+    /// or a DIFFERENT gallery's UI (CED-14 WS A.2): once the teardown
+    /// cleared `importTask`, late events are dropped.
+    private func publishImportProgress(_ progress: ImportProgress?) async {
+        guard importTask != nil else { return }
+        let sink = self.sink
+        await MainActor.run { sink?.importProgressed(progress) }
+    }
+
     private func finishImport(_ summary: ImportSummary) async {
+        // A lock/switch teardown already cleared `importTask` (CED-14
+        // WS A.2): this summary belongs to a TORN-DOWN session — its
+        // outcomes carry provider filenames, and surfacing it after a
+        // DIFFERENT gallery unlocks would leak old-gallery residue
+        // across the switch. Staging was wiped by the lock path.
+        guard importTask != nil else { return }
         importTask = nil
         container.wipeStaging()  // import-end staging custody (gate 4)
         if case .unlocked = phase {
@@ -583,6 +647,23 @@ actor VaultCoordinator {
             // Undecodable or locked: leave the no-preview badge; the
             // grid already reports the item damaged/missing.
         }
+    }
+
+    /// Cover-pipeline source (CED-14 WS B.2): decrypts one ORIGINAL's
+    /// bytes into memory for the in-memory downscale→seal pass. Never
+    /// touches disk; nil when locked, unknown, or not an original.
+    /// The decoded bytes are the DISCLOSED memory residual.
+    func decryptOriginalForCover(_ originalID: FileID) async -> Data? {
+        guard case .unlocked = phase, let gallery else { return nil }
+        guard let meta = index.metadata(for: originalID), meta.kind == .original else {
+            return nil
+        }
+        guard
+            let length = latestSnapshot?.files.first(where: { $0.fileID == originalID })?
+                .unpaddedLength
+        else { return nil }
+        let reader = await gallery.makeReader()
+        return try? Self.decryptWhole(fileID: originalID, length: length, reader: reader)
     }
 
     /// Decrypts a whole entry into ordinary-heap Data for ImageIO.
@@ -729,6 +810,9 @@ actor VaultCoordinator {
     /// commit crash-window states directly through it.
     func debugGallery() -> Gallery? { gallery }
 
+    /// The currently targeted gallery directory (switchboard surface).
+    func currentGalleryDirectory() -> URL? { galleryDirectory }
+
     #if DEBUG
         /// UI-test seam (gate 2's tampered-item leg): flips one byte
         /// in `fileID`'s first chunk ON DISK, so the next streamed
@@ -771,9 +855,12 @@ actor VaultCoordinator {
         await MainActor.run { sink?.unlockFailed(failure) }
     }
 
-    private func persistCalibrationRecord(_ record: KDFCalibrator.Record) {
+    /// PER-GALLERY record since CED-14 (WS A.3): keyed by the
+    /// authoritative gallery UUID, written after `SealedVault.create`
+    /// mints it (the calibration itself still runs before the vault
+    /// exists — calibrate-at-creation is unchanged).
+    private func persistCalibrationRecord(_ record: KDFCalibrator.Record, galleryID: UUID) {
         guard let data = try? JSONEncoder().encode(record) else { return }
-        let url = container.vaultRoot.appendingPathComponent("calibration.json")
-        try? data.write(to: url, options: [.atomic])
+        try? data.write(to: container.calibrationURL(galleryID: galleryID), options: [.atomic])
     }
 }

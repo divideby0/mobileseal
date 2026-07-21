@@ -16,11 +16,26 @@ struct UnlockView: View {
 
     var body: some View {
         VStack(spacing: 24) {
+            // Back to the gallery list (CED-14 WS A.2, plan review
+            // Q15): a wrong target password leaves the app HERE with
+            // everything locked; Back returns to the list.
+            if store.canSwitchGalleries {
+                HStack {
+                    Button {
+                        store.backToList()
+                    } label: {
+                        Label("Galleries", systemImage: "chevron.left")
+                    }
+                    .accessibilityIdentifier("back-to-list-button")
+                    Spacer()
+                }
+                .padding(.horizontal)
+            }
             Spacer()
             Image(systemName: "lock.shield")
                 .font(.system(size: 56))
                 .foregroundStyle(.tint)
-            Text("MobileSeal")
+            Text(store.selectedGalleryName ?? "MobileSeal")
                 .font(.largeTitle.bold())
 
             SecureField("Password", text: $password)

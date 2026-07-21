@@ -22,7 +22,7 @@ import VaultCore
                 url: container.deviceLocalDir.appendingPathComponent("test-device-key")),
             deviceName: "app-test-device")
         let defaults = UserDefaults(suiteName: "recovery-tests-\(UUID().uuidString)")!
-        let store = VaultStore(
+        let store = TestSupport.makeStore(
             coordinator: coordinator, container: container, defaults: defaults)
         defer {
             Task {

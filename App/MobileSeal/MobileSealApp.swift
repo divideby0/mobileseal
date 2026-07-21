@@ -27,10 +27,9 @@ struct MobileSealApp: App {
                 // Also reset persisted preferences: an earlier run on
                 // this simulator (incl. app-hosted unit tests before
                 // the defaults-injection seam existed) may have left
-                // non-default lock policy behind.
-                UserDefaults.standard.removeObject(
-                    forKey: LockPreferences.backgroundPolicyKey)
-                UserDefaults.standard.removeObject(forKey: LockPreferences.idleTimeoutKey)
+                // non-default lock policy behind. Per-gallery keys
+                // included (CED-14 WS A.3).
+                LockPreferences.resetAll(in: .standard)
             }
             container = try! AppContainer(base: base)
             // CED-13 gate 2: the migration e2e leg starts from the
@@ -45,8 +44,15 @@ struct MobileSealApp: App {
         // unique one (identity is the public key).
         let coordinator = VaultCoordinator(
             container: container, deviceName: UIDevice.current.name)
+        let labelStore = GalleryLabelStore(container: container)
+        let switchboard = GallerySwitchboard(
+            coordinator: coordinator,
+            registry: GalleryRegistry(container: container),
+            labelStore: labelStore)
         _store = State(
-            initialValue: VaultStore(coordinator: coordinator, container: container))
+            initialValue: VaultStore(
+                coordinator: coordinator, container: container,
+                switchboard: switchboard, labelStore: labelStore))
     }
 
     var body: some Scene {
@@ -79,26 +85,40 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            switch store.phase {
+            // CED-14 WS B.1: the ROUTE decides the surface (setup /
+            // list / one gallery's flow); within a gallery the phase
+            // machine is unchanged from the single-gallery app.
+            switch store.route {
             case .starting:
                 ProgressView()
-            case .needsSetup, .creating:
+            case .setup:
                 SetupView(store: store)
-            case .locked, .unlocking:
-                UnlockView(store: store)
-            case .unlocked:
-                // No blanket SwiftUI TapGesture here: a simultaneous
-                // gesture over the UIViewRepresentable grid swallows
-                // UICollectionView cell selection (didSelectItemAt
-                // never fires — found by CED-12's pager gate; latent
-                // since CED-11, whose tests never tapped a cell).
-                // Interaction noting rides the grid's scroll/select
-                // callbacks instead.
-                GalleryView(store: store)
-            case .locking:
-                ProgressView("Locking…")
-            case .galleryError(let failure):
-                GalleryErrorView(failure: failure)
+            case .list:
+                GalleryListView(store: store)
+            case .gallery:
+                switch store.phase {
+                case .starting, .needsSetup:
+                    // Transitional between route + phase publishes.
+                    ProgressView()
+                case .creating:
+                    SetupView(store: store)
+                case .locked, .unlocking:
+                    UnlockView(store: store)
+                case .unlocked:
+                    // No blanket SwiftUI TapGesture here: a
+                    // simultaneous gesture over the
+                    // UIViewRepresentable grid swallows
+                    // UICollectionView cell selection (didSelectItemAt
+                    // never fires — found by CED-12's pager gate;
+                    // latent since CED-11, whose tests never tapped a
+                    // cell). Interaction noting rides the grid's
+                    // scroll/select callbacks instead.
+                    GalleryView(store: store)
+                case .locking:
+                    ProgressView("Locking…")
+                case .galleryError(let failure):
+                    GalleryErrorView(failure: failure)
+                }
             }
 
             if store.shielded {

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 import VaultCore
@@ -91,6 +92,46 @@ enum TestSupport {
 struct TestError: Error, CustomStringConvertible {
     let description: String
     init(_ description: String) { self.description = description }
+}
+
+extension TestSupport {
+    /// A full store + switchboard stack over one coordinator (CED-14):
+    /// what `MobileSealApp.init` wires, with the test seams (file
+    /// label key, injected defaults) in place.
+    @MainActor
+    static func makeStore(
+        coordinator: VaultCoordinator, container: AppContainer, defaults: UserDefaults
+    ) -> VaultStore {
+        let labelStore = GalleryLabelStore(
+            container: container,
+            keyStore: FileLabelKeyStore(
+                url: container.deviceLocalDir.appendingPathComponent("test-label-key")))
+        let switchboard = GallerySwitchboard(
+            coordinator: coordinator, registry: GalleryRegistry(container: container),
+            labelStore: labelStore, defaults: SendableDefaults(defaults))
+        return VaultStore(
+            coordinator: coordinator, container: container,
+            switchboard: switchboard, labelStore: labelStore, defaults: defaults)
+    }
+}
+
+/// File-backed label-key store for app-hosted tests (CED-14 WS B.2):
+/// keeps each test container's label key isolated from the real
+/// Keychain item. TEST ONLY — mirrors TestDeviceKeyStore.
+struct FileLabelKeyStore: LabelKeyStore {
+    let url: URL
+
+    func loadKey() throws -> SymmetricKey? {
+        guard let data = try? Data(contentsOf: url), data.count == 32 else { return nil }
+        return SymmetricKey(data: data)
+    }
+
+    func loadOrCreateKey() throws -> SymmetricKey {
+        if let existing = try loadKey() { return existing }
+        let key = SymmetricKey(size: .bits256)
+        try key.withUnsafeBytes { Data($0) }.write(to: url, options: [.atomic])
+        return key
+    }
 }
 
 /// File-backed device-key store for app-hosted tests (CED-13): keeps

@@ -8,6 +8,16 @@ import VaultCore
 /// BOUNDED decoded-image cache. Everything here is app-side plaintext
 /// residency — the documented residual class — and `purge()` empties
 /// all of it on lock (GOAL WS D.3; gate 5 asserts emptiness).
+/// Rides the coordinator's ONE lock path (CED-14 WS A.2, plan review
+/// B2): every teardown — including gallery switches — purges decoded
+/// thumbnails before the custodian drain, structurally.
+struct ThumbnailLockParticipant: VaultLockParticipant {
+    let pipeline: ThumbnailPipeline
+    func prepareForLock() async {
+        await pipeline.purge()
+    }
+}
+
 actor ThumbnailPipeline {
     /// Decoded-cache byte ceiling. 64 MiB ≈ 170 × 512px JPEG decodes —
     /// several screenfuls at 3-4 columns.

@@ -13,17 +13,40 @@ import VaultCore
 /// lock — Codex A2) and the auto-lock preferences (grill Q2).
 @MainActor
 @Observable
-final class VaultStore: VaultUISink {
+final class VaultStore: VaultUISink, GallerySwitchboardSink {
     private static let log = Logger(
         subsystem: "com.gmail.cedric.hurst.mobileseal", category: "lock")
 
     let coordinator: VaultCoordinator
     private let coordinatorContainer: AppContainer
     private let defaults: UserDefaults
+    /// The single switch authority (CED-14 WS A.2): every lock/unlock/
+    /// select/create intent below routes through it — the store keeps
+    /// POLICY (shield, auto-lock preferences) and view state only.
+    let switchboard: GallerySwitchboard
+    /// Device-local label access for the list surface (CED-14 WS B.2).
+    let labelStore: GalleryLabelStore
     let thumbnails = ThumbnailPipeline()
     /// Playback custody owner (CED-12 WS C.3) — registered with the
     /// coordinator's lock path at bootstrap.
     let playback = PlaybackController()
+
+    // MARK: - CED-14 root routing + list state
+
+    private(set) var route: AppRoute = .starting
+    private(set) var registrySnapshot = GallerySnapshot()
+    /// The selected gallery's authoritative UUID — the key for every
+    /// per-gallery preference below.
+    private(set) var selectedGalleryID: UUID?
+    /// Decrypted label outcomes for the list tiles (typed: failures
+    /// render as generic tiles, never crash — plan review B9).
+    private(set) var galleryLabels: [UUID: GalleryLabelOutcome] = [:]
+    #if os(iOS)
+        /// Decoded cover images. PURGED with the global shield (plan
+        /// review Q19): the list stays behind the `.inactive` shield,
+        /// and the decoded pixels leave memory when it rises.
+        private(set) var coverImages: [UUID: UIImage] = [:]
+    #endif
 
     private(set) var phase: VaultPhase = .starting
     private(set) var items: [MediaItem] = []
@@ -49,8 +72,15 @@ final class VaultStore: VaultUISink {
     private(set) var shielded = false
     private var lockPending = false
 
+    /// PER-GALLERY since CED-14 (WS A.3): loaded when a gallery is
+    /// selected, saved under that gallery's keys. The load itself must
+    /// not echo a save (`suppressPreferenceSave`).
+    private var suppressPreferenceSave = false
     var lockPreferences: LockPreferences {
-        didSet { lockPreferences.save(to: defaults) }
+        didSet {
+            guard !suppressPreferenceSave, let id = selectedGalleryID else { return }
+            lockPreferences.save(to: defaults, galleryID: id)
+        }
     }
 
     /// Foreground idle backstop bookkeeping.
@@ -68,12 +98,15 @@ final class VaultStore: VaultUISink {
     /// same simulator, including the e2e gate's.
     init(
         coordinator: VaultCoordinator, container: AppContainer,
+        switchboard: GallerySwitchboard, labelStore: GalleryLabelStore,
         defaults: UserDefaults = .standard
     ) {
         self.coordinator = coordinator
         self.coordinatorContainer = container
+        self.switchboard = switchboard
+        self.labelStore = labelStore
         self.defaults = defaults
-        self.lockPreferences = LockPreferences.load(from: defaults)
+        self.lockPreferences = LockPreferences()
     }
 
     /// One-shot: the root view's `.task` re-runs when a full-screen
@@ -87,22 +120,44 @@ final class VaultStore: VaultUISink {
         await coordinator.attach(sink: self)
         await coordinator.attachPlayback(
             cache: playback.cache, participant: playback)
+        // The thumbnail pipeline rides the ONE lock path (CED-14 WS
+        // A.2, plan review B2): every teardown purges it before the
+        // custodian drain, including gallery switches.
+        await coordinator.attachLockParticipant(
+            ThumbnailLockParticipant(pipeline: thumbnails))
         await thumbnails.setDamageHandler { [weak self] fileID in
             await self?.markDamaged(fileID)
         }
-        await coordinator.start()
+        await switchboard.attach(sink: self)
+        await switchboard.bootstrap()
     }
 
-    // MARK: - intents
+    // MARK: - intents (all custody transitions route via switchboard)
 
-    func createGallery(password: String) {
+    func createGallery(password: String, name: String? = nil) {
         lastUnlockFailure = nil
-        Task { await coordinator.createGallery(password: password) }
+        Task { await switchboard.createGallery(name: name, password: password) }
     }
 
     func unlock(password: String, acceptRollback: Bool = false) {
         lastUnlockFailure = nil
-        Task { await coordinator.unlock(password: password, acceptRollback: acceptRollback) }
+        Task {
+            await switchboard.unlockSelected(
+                password: password, acceptRollback: acceptRollback)
+        }
+    }
+
+    /// From the list: target a gallery (its unlock screen appears).
+    func selectGallery(_ id: UUID) {
+        lastUnlockFailure = nil
+        Task { await switchboard.select(id) }
+    }
+
+    /// Back to the list — from a target's unlock screen, or "Switch
+    /// Gallery" while unlocked (which locks first, full teardown).
+    func backToList() {
+        lastUnlockFailure = nil
+        Task { await switchboard.backToList() }
     }
 
     // MARK: - two-tier delete intents (CED-13 WS C.2)
@@ -123,10 +178,12 @@ final class VaultStore: VaultUISink {
     }
 
     /// Explicit lock control (GOAL WS D.1) and every auto-lock path.
-    /// Plaintext-bearing UI state clears SYNCHRONOUSLY here; the key
-    /// drain runs on the coordinator under a background-task assertion
-    /// so iOS lets the consuming `lock()` finish before suspending the
-    /// process (wave-001 cc #4).
+    /// Plaintext-bearing UI state clears SYNCHRONOUSLY here; the
+    /// teardown transaction (thumbnail purge rides the coordinator's
+    /// lock path as a participant since CED-14) runs on the
+    /// switchboard under a background-task assertion so iOS lets the
+    /// consuming `lock()` finish before suspending the process
+    /// (wave-001 cc #4).
     func lock() {
         Self.log.debug("store.lock() requested")
         lockPending = true
@@ -138,19 +195,14 @@ final class VaultStore: VaultUISink {
         #if os(iOS) && !targetEnvironment(macCatalyst)
             let assertion = UIApplication.shared.beginBackgroundTask(withName: "vault-lock")
             Task {
-                await lockAndPurge()
+                await switchboard.lockCurrent()
                 if assertion != .invalid {
                     UIApplication.shared.endBackgroundTask(assertion)
                 }
             }
         #else
-            Task { await lockAndPurge() }
+            Task { await switchboard.lockCurrent() }
         #endif
-    }
-
-    private func lockAndPurge() async {
-        await thumbnails.purge()
-        await coordinator.lock()
     }
 
     func startImport(providers: [any MediaProvider]) {
@@ -178,6 +230,11 @@ final class VaultStore: VaultUISink {
     func sceneBecameInactive() {
         Self.log.debug("scene inactive — shield up")
         shielded = true
+        // Covers purge with the global shield (CED-14 WS B.2, plan
+        // review Q19): the decoded pixels leave memory the moment the
+        // opaque shield rises, so no cover can ride the app-switcher
+        // snapshot even though the list renders pre-unlock.
+        purgeCoverImages()
     }
 
     func sceneBecameActive() {
@@ -200,6 +257,7 @@ final class VaultStore: VaultUISink {
             shielded = false
             noteInteraction()
         }
+        reloadLabels()
     }
 
     func sceneEnteredBackground() {
@@ -239,6 +297,29 @@ final class VaultStore: VaultUISink {
         }
     }
 
+    // MARK: - GallerySwitchboardSink (CED-14 WS B.1)
+
+    func routeChanged(_ route: AppRoute) {
+        self.route = route
+        if case .gallery(let record) = route {
+            // Per-gallery policy arms at selection (WS A.3, plan
+            // review Q18): the list held no DEK and needed none; from
+            // here this gallery's own preferences govern.
+            selectedGalleryID = record.id
+            suppressPreferenceSave = true
+            lockPreferences = LockPreferences.load(from: defaults, galleryID: record.id)
+            suppressPreferenceSave = false
+        } else {
+            selectedGalleryID = nil
+        }
+        if case .list = route { reloadLabels() }
+    }
+
+    func registryChanged(_ snapshot: GallerySnapshot) {
+        registrySnapshot = snapshot
+        reloadLabels()
+    }
+
     // MARK: - VaultUISink
 
     func phaseChanged(_ phase: VaultPhase) {
@@ -247,6 +328,31 @@ final class VaultStore: VaultUISink {
         // hold decoded plaintext imagery (CED-12 WS C.3).
         if !phase.isUnlocked { MediaPagerPresenter.dismissActive() }
         if case .unlocked = phase { noteInteraction() }
+        if case .unlocked = phase, lockPending {
+            // A lock requested while an unlock was in flight must WIN
+            // (CED-14 gate 3's backgrounding-mid-target-KDF race): the
+            // two transactions land on the switchboard in either
+            // order, and if the teardown processed first — a no-op,
+            // nothing was live yet — the unlock would otherwise settle
+            // an unlocked vault in the background. Re-issue until the
+            // pending lock lands; the shield stays up throughout.
+            Self.log.debug("unlock settled under a pending lock — re-locking")
+            Task { await switchboard.lockCurrent() }
+        }
+        if phase == .locking {
+            // EVERY teardown path — user lock, scene lock, idle
+            // backstop, gallery switch — clears plaintext-adjacent UI
+            // state the moment the coordinator enters `.locking`,
+            // before its participant sweep and custodian drain (CED-14
+            // WS A.2, plan review B2). `store.lock()` also clears
+            // synchronously for same-frame UX; this is the structural
+            // backstop for switchboard-initiated teardowns.
+            lastImportSummary = nil
+            importProgress = nil
+            recentlyDeleted = []
+            regenerationAttempted = []
+            derivedDurations = [:]
+        }
         if phase == .locked {
             lockPending = false
             // The shield outlives the lock only while the scene is
@@ -300,11 +406,90 @@ final class VaultStore: VaultUISink {
     }
 
     /// The persisted calibration record (WS D.4) for the Settings
-    /// display — the device benchmark's data source.
+    /// display — the device benchmark's data source. PER-GALLERY since
+    /// CED-14 (WS A.3): the selected gallery's record.
     func loadCalibrationRecord() -> KDFCalibrator.Record? {
-        let url = coordinatorContainer.vaultRoot.appendingPathComponent("calibration.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let id = selectedGalleryID else { return nil }
+        guard let data = try? Data(contentsOf: coordinatorContainer.calibrationURL(galleryID: id))
+        else { return nil }
         return try? JSONDecoder().decode(KDFCalibrator.Record.self, from: data)
+    }
+
+    // MARK: - Device-local labels (CED-14 WS B.2)
+
+    /// Re-reads every discovered gallery's label. Reads are cheap
+    /// (small sealed files); failures are typed and degrade to
+    /// generic tiles.
+    func reloadLabels() {
+        var labels: [UUID: GalleryLabelOutcome] = [:]
+        for record in registrySnapshot.records {
+            labels[record.id] = labelStore.label(for: record.id)
+        }
+        galleryLabels = labels
+        #if os(iOS)
+            guard !shielded else { return }
+            var covers: [UUID: UIImage] = [:]
+            for (id, outcome) in labels {
+                if case .labeled(let label) = outcome, let jpeg = label.coverJPEG,
+                    let image = UIImage(data: jpeg)
+                {
+                    covers[id] = image
+                }
+            }
+            coverImages = covers
+        #endif
+    }
+
+    private func purgeCoverImages() {
+        #if os(iOS)
+            coverImages = [:]
+        #endif
+    }
+
+    /// The selected gallery's display name (nil = unlabeled).
+    var selectedGalleryName: String? {
+        guard let id = selectedGalleryID,
+            case .labeled(let label) = galleryLabels[id] ?? labelStore.label(for: id)
+        else { return nil }
+        return label.name
+    }
+
+    /// Sets/clears the selected gallery's device-local name.
+    func setGalleryName(_ name: String) {
+        guard let id = selectedGalleryID else { return }
+        var label = labelStore.currentLabel(for: id)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        label.name = trimmed.isEmpty ? nil : trimmed
+        do {
+            try labelStore.setLabel(label, for: id)
+        } catch {
+            Self.log.error(
+                "gallery name write failed: \(String(describing: error), privacy: .public)")
+        }
+        reloadLabels()
+    }
+
+    /// Cover pipeline (WS B.2, plan review B9): decrypt the chosen
+    /// original → downscale IN MEMORY → seal under the label key, one
+    /// pass, no plaintext file. Explicit per-device opt-in leak
+    /// (grill Q1). Only meaningful while this gallery is unlocked.
+    func setCover(from originalID: FileID) {
+        guard let id = selectedGalleryID else { return }
+        Task {
+            guard let data = await coordinator.decryptOriginalForCover(originalID) else {
+                return
+            }
+            do {
+                let cover = try GalleryLabelStore.makeCoverJPEG(fromDecryptedOriginal: data)
+                var label = labelStore.currentLabel(for: id)
+                label.coverJPEG = cover
+                try labelStore.setLabel(label, for: id)
+                reloadLabels()
+            } catch {
+                Self.log.error(
+                    "cover pipeline failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     func markDamaged(_ fileID: FileID) {
@@ -322,6 +507,12 @@ final class VaultStore: VaultUISink {
 
     func recordDerivedDuration(_ seconds: Double, for fileID: FileID) {
         derivedDurations[fileID] = seconds
+    }
+
+    /// Route for the "Switch Gallery" affordance: shown whenever more
+    /// than one gallery (or any discovery failure) exists.
+    var canSwitchGalleries: Bool {
+        registrySnapshot.records.count + registrySnapshot.failures.count > 1
     }
 
     #if DEBUG

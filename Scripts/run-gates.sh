@@ -44,6 +44,12 @@ xcodebuild -project MobileSeal.xcodeproj -scheme MobileSeal \
   -only-testing:MobileSealUITests/MigrationDeleteUITests \
   test
 
+echo "== CED-14 gate 2: multi-gallery create/switch/label e2e (UI) =="
+xcodebuild -project MobileSeal.xcodeproj -scheme MobileSeal \
+  -destination "$DEST" \
+  -only-testing:MobileSealUITests/MultiGalleryUITests \
+  test
+
 echo "== Gate 3: instrumented 500-photo scroll perf (UI) =="
 xcodebuild -project MobileSeal.xcodeproj -scheme MobileSeal \
   -destination "$DEST" \

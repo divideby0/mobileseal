@@ -44,6 +44,25 @@ public struct SealedVault: Sendable {
         self.clock = clock
     }
 
+    /// Read-only structural parse of a directory's `gallery.meta`
+    /// (CED-14 WS B.1, plan review B4): feeds locked-gallery discovery
+    /// WITHOUT constructing a `SealedVault` — `init(directory:)` runs
+    /// WAL recovery, which mutates HEAD/WAL state and must never run
+    /// against a directory another live writer has claimed. This path
+    /// only reads `gallery.meta` bytes (size-capped) and parses them
+    /// structurally; it touches nothing else in the directory and
+    /// requires no DEK.
+    public static func readStructuralMeta(directory: URL) throws -> GalleryMeta {
+        try SodiumRuntime.ensure()
+        let layout = VaultLayout(root: directory)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDir),
+            isDir.boolValue
+        else { throw VaultError.notAVault(path: directory.path) }
+        let metaBytes = try FS.read(layout.metaURL, object: .galleryMeta, maxBytes: 64 * 1024)
+        return try GalleryMeta.parse(metaBytes)
+    }
+
     /// Creates a new gallery in format v1: fresh DEK wrapped under the
     /// password at epoch 0, `gallery.meta` written, genesis trust list
     /// signed by the creating device (GOAL WS A.2), and an empty
