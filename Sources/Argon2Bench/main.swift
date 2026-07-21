@@ -91,10 +91,17 @@ func endToEndUnlockSeconds() throws -> TimeInterval {
         .appendingPathComponent("argon2-bench-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: dir) }
     let pw = try SecureBytes(nfcNormalizedPassword: "benchmark password - not a secret")
-    let created = try SealedVault.create(at: dir, password: pw, kdfParams: .default)
+    let identity = try DeviceIdentity.generate()
+    let rollback = FileRollbackStateStore(
+        fileURL: dir.appendingPathComponent("bench-rollback.json"))
+    let created = try SealedVault.create(
+        at: dir, password: pw, kdfParams: .default,
+        identity: identity, deviceName: "argon2-bench")
     let pw2 = try SecureBytes(nfcNormalizedPassword: "benchmark password - not a secret")
     let start = DispatchTime.now()
-    let session = try created.unlock(password: pw2)
+    let session = try created.unlock(
+        password: pw2, identity: identity, deviceName: "argon2-bench",
+        rollbackStore: rollback)
     let end = DispatchTime.now()
     session.lock()
     return TimeInterval(end.uptimeNanoseconds - start.uptimeNanoseconds) / 1e9

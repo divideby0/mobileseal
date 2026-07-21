@@ -1,0 +1,51 @@
+    41 +
+    42 +Suggested fix: include the gallery epoch in the common signing preamble and thread it through mint/verify for every signed kind
+        , then regenerate the KATs and add wrong-epoch signature probes for Tombstone, TrustList, and HEAD as well as AddEntry.
+    43 +
+    44 +## 5. Recovery can write a HEAD whose signer is absent from the manifest trust list
+    45 +
+    46 +Evidence: for a missing/corrupt/dangling HEAD, the v1 recovery scan signs a fresh descriptor with the current `identity` and in
+        stalls it at `Sources/VaultCore/SealedVault.swift:430-461`, without checking whether that identity appears in the recovered man
+        ifest's trust list. On the next normal v1 open, the code explicitly rejects exactly that state at `Sources/VaultCore/SealedVaul
+        t.swift:370-375`.
+    47 +
+    48 +This matters for the specified restore behavior: on a replacement device (fresh Keychain identity) recovering a vault with a da
+        maged HEAD, the first unlock can return the recovered manifest but persist a HEAD that the next unlock rejects as `.untrustedSi
+        gner(.head)`. The app's best-effort `ensureDeviceRegistered()` usually papers over this with a second commit, but its error is
+        swallowed; a read-only SDK client, a lock before registration, or an I/O failure during registration leaves the repaired vault
+        unable to unlock normally.
+    49 +
+    50 +Suggested fix: do not publish a repaired HEAD signed by an unlisted device. Either defer HEAD repair until the TOFU registratio
+        n commit, or atomically union/register the current device into a new recovered manifest and commit that manifest together with
+        its HEAD. Add a test using a fresh identity, a removed HEAD, recovery followed by lock without explicit registration, and a sec
+        ond unlock.
+    51 +
+    52 +## 6. Recently Deleted state is silently discarded before durable success
+    53 +
+    54 +Evidence: `RecentlyDeletedStore.load` treats every read or decode failure as an empty ledger and `save` discards every encoding
+        /write error at `App/MobileSeal/Support/RecentlyDeletedStore.swift:47-60`. Separately, manual purge calls `store.remove` before
+         `gallery.deleteEntries` at `App/MobileSeal/VaultCoordinator.swift:460-467`; on any commit error it only logs and breaks, after
+         the only retry record has already been removed.
+    55 +
+    56 +This matters because the goal explicitly requires soft-delete, restore, purge, and relaunch state to be durable. A corrupt ledg
+        er silently resurrects every soft-deleted item and can be overwritten as an empty/new ledger. A disk, lock, or commit failure d
+        uring manual purge similarly makes an item reappear in the normal grid even though the user selected permanent removal, with no
+         UI error and no retained row to retry.
+    57 +
+    58 +Suggested fix: make ledger load/save operations throwing, distinguish a missing file from I/O or decode corruption, and surface
+         failures through the coordinator/UI. For purge, read the row without removing it, commit all aggregate tombstones first, and d
+        elete the ledger row only after success (or restore the exact row on failure). Add injected corrupt-ledger, write-failure, and
+        hard-delete-failure tests.
+    59 +
+    60 +REVIEW COMPLETE
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• REVIEW COMPLETE
+
+─ Worked for 8m 31s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Use /skills to list available skills
+
+  gpt-5.6-sol high · /private/tmp/evie-review-CED-13-codex-e906248f-lxqxGq/tree

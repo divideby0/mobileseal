@@ -155,17 +155,27 @@ enum KDFCalibrator {
         // return; every timed unlock SUCCEEDS so the rate limiter
         // resets each round and the timing is the honest KDF cost.
         let passphrase = "mobileseal-calibration-\(UUID().uuidString)"
+        // Throwaway identity + rollback state, deleted with the vault:
+        // calibration must never touch the real device key or the
+        // device-local high-water store.
+        let identity = try DeviceIdentity.generate()
+        let rollback = FileRollbackStateStore(
+            fileURL: dir.appendingPathComponent("calibration-rollback.json"))
         let vault: SealedVault
         do {
             let password = try SecureBytes(nfcNormalizedPassword: passphrase)
-            vault = try SealedVault.create(at: dir, password: password, kdfParams: params)
+            vault = try SealedVault.create(
+                at: dir, password: password, kdfParams: params,
+                identity: identity, deviceName: "calibration")
         }
 
         var timings: [TimeInterval] = []
         for _ in 0..<5 {
             let pw = try SecureBytes(nfcNormalizedPassword: passphrase)
             let start = ContinuousClock.now
-            let session = try vault.unlock(password: pw)
+            let session = try vault.unlock(
+                password: pw, identity: identity, deviceName: "calibration",
+                rollbackStore: rollback)
             let elapsed = start.duration(to: .now)
             session.lock(drainDeadline: 0)
             timings.append(

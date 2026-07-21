@@ -242,13 +242,13 @@ import Testing
         defer { vault.destroy() }
         _ = try await seed(vault)
 
-        // Tamper the CURRENT inventory (the one HEAD points at) —
+        // Tamper the CURRENT manifest (the one HEAD points at) —
         // deliberate tampering is surfaced, not silently rolled back.
-        let head = try Head.parse(
+        let head = try HeadFile.parse(
             [UInt8](try Data(contentsOf: vault.layout.headURL)))
-        try vault.tamper(vault.layout.inventoryURL(head), atOffset: 40)
+        try vault.tamper(vault.layout.inventoryURL(head.address), atOffset: 40)
 
-        #expect(throws: VaultError.authenticationFailed(.inventory)) {
+        #expect(throws: VaultError.authenticationFailed(.manifest)) {
             let pw = try vault.password()
             _ = try vault.open().unlock(password: pw)
         }

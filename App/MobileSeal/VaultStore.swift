@@ -27,8 +27,13 @@ final class VaultStore: VaultUISink {
 
     private(set) var phase: VaultPhase = .starting
     private(set) var items: [MediaItem] = []
+    /// Soft-deleted aggregates (CED-13 WS C.2) — the Recently Deleted
+    /// screen's data; cleared synchronously on lock.
+    private(set) var recentlyDeleted: [RecentlyDeletedItem] = []
     private(set) var indexReport = IndexReport()
-    private(set) var lastUnlockFailure: UnlockFailure?
+    /// Settable: the unlock view clears the rollback-acceptance
+    /// failure when its alert is dismissed.
+    var lastUnlockFailure: UnlockFailure?
     private(set) var importProgress: ImportProgress?
     /// Last finished batch — drives the import summary sheet,
     /// including the interrupted-batch resume prompt (grill Q8).
@@ -95,9 +100,26 @@ final class VaultStore: VaultUISink {
         Task { await coordinator.createGallery(password: password) }
     }
 
-    func unlock(password: String) {
+    func unlock(password: String, acceptRollback: Bool = false) {
         lastUnlockFailure = nil
-        Task { await coordinator.unlock(password: password) }
+        Task { await coordinator.unlock(password: password, acceptRollback: acceptRollback) }
+    }
+
+    // MARK: - two-tier delete intents (CED-13 WS C.2)
+
+    /// "Remove" from grid/pager: soft — into Recently Deleted.
+    func softDelete(_ originalIDs: [FileID]) {
+        Task { await coordinator.softDeleteItems(originalIDs) }
+    }
+
+    /// Restore from Recently Deleted.
+    func restoreDeleted(_ originalID: FileID) {
+        Task { await coordinator.restoreDeletedItem(originalID) }
+    }
+
+    /// Permanent removal (hard Tombstones for the whole aggregate).
+    func purgeDeleted(_ originalIDs: [FileID]) {
+        Task { await coordinator.purgeDeletedItems(originalIDs) }
     }
 
     /// Explicit lock control (GOAL WS D.1) and every auto-lock path.
@@ -110,6 +132,7 @@ final class VaultStore: VaultUISink {
         lockPending = true
         lastImportSummary = nil
         importProgress = nil
+        recentlyDeleted = []
         regenerationAttempted = []
         derivedDurations = [:]
         #if os(iOS) && !targetEnvironment(macCatalyst)
@@ -250,6 +273,10 @@ final class VaultStore: VaultUISink {
         if report.missingThumbnails > 0, phase.isUnlocked {
             regenerateMissingThumbnails()
         }
+    }
+
+    func recentlyDeletedChanged(_ items: [RecentlyDeletedItem]) {
+        recentlyDeleted = items
     }
 
     func readerChanged(_ reader: ChunkReader?) {

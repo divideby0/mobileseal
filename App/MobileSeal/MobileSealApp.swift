@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// SwiftUI-lifecycle app (GOAL WS A.2). Single-scene policy is
 /// structural: Info.plist sets `UIApplicationSupportsMultipleScenes`
@@ -32,10 +33,18 @@ struct MobileSealApp: App {
                 UserDefaults.standard.removeObject(forKey: LockPreferences.idleTimeoutKey)
             }
             container = try! AppContainer(base: base)
+            // CED-13 gate 2: the migration e2e leg starts from the
+            // committed pre-migration (v0) vault fixture.
+            UITestSupport.seedV0VaultIfRequested(into: container)
         } else {
             container = try! AppContainer.standard()
         }
-        let coordinator = VaultCoordinator(container: container)
+        // Trust-list registration label (CED-13 WS A.2). Since iOS 16
+        // this is the generic model name ("iPhone"), which is fine —
+        // the trust list needs a human-recognizable label, not a
+        // unique one (identity is the public key).
+        let coordinator = VaultCoordinator(
+            container: container, deviceName: UIDevice.current.name)
         _store = State(
             initialValue: VaultStore(coordinator: coordinator, container: container))
     }

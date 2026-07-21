@@ -93,6 +93,32 @@ struct TestError: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
+/// File-backed device-key store for app-hosted tests (CED-13): keeps
+/// each test container's device identity isolated from the real
+/// Keychain item and from other parallel tests. TEST ONLY — the
+/// plaintext file custody is exactly what production must never do.
+struct TestDeviceKeyStore: DeviceKeyStore {
+    let url: URL
+
+    func loadOrCreateIdentity() throws -> DeviceIdentity {
+        if let data = try? Data(contentsOf: url),
+            data.count == DeviceIdentity.secretKeyBytes
+        {
+            var bytes = [UInt8](data)
+            return try DeviceIdentity(consuming: SecureBytes(consumingAndZeroing: &bytes))
+        }
+        let secret = try DeviceIdentity.generateSecretKey()
+        var out = Data(count: DeviceIdentity.secretKeyBytes)
+        out.withUnsafeMutableBytes { dst in
+            secret.withUnsafeBytes { src in
+                dst.baseAddress!.copyMemory(from: src.baseAddress!, byteCount: src.count)
+            }
+        }
+        try out.write(to: url, options: [.atomic])
+        return try DeviceIdentity(consuming: secret)
+    }
+}
+
 /// Records every sink callback; tests await conditions against it.
 @MainActor
 final class RecordingSink: VaultUISink {
@@ -104,6 +130,9 @@ final class RecordingSink: VaultUISink {
     private(set) var streamingReaders: [StreamingReader?] = []
     private(set) var progress: [ImportProgress?] = []
     private(set) var summaries: [ImportSummary] = []
+    private(set) var recentlyDeletedHistory: [[RecentlyDeletedItem]] = []
+
+    var recentlyDeleted: [RecentlyDeletedItem] { recentlyDeletedHistory.last ?? [] }
 
     var phase: VaultPhase? { phases.last }
     var items: [MediaItem] { itemsHistory.last ?? [] }
@@ -123,6 +152,9 @@ final class RecordingSink: VaultUISink {
     }
     func importProgressed(_ progress: ImportProgress?) { self.progress.append(progress) }
     func importFinished(_ summary: ImportSummary) { summaries.append(summary) }
+    func recentlyDeletedChanged(_ items: [RecentlyDeletedItem]) {
+        recentlyDeletedHistory.append(items)
+    }
 }
 
 /// One unlocked coordinator + sink over a fresh temp container with a
@@ -137,7 +169,10 @@ struct UnlockedVault {
     static func create() async throws -> UnlockedVault {
         let container = try TestSupport.makeContainer()
         let coordinator = VaultCoordinator(
-            container: container, calibration: TestSupport.fastCalibration)
+            container: container, calibration: TestSupport.fastCalibration,
+            deviceKeyStore: TestDeviceKeyStore(
+                url: container.deviceLocalDir.appendingPathComponent("test-device-key")),
+            deviceName: "app-test-device")
         let sink = RecordingSink()
         await coordinator.attach(sink: sink)
         await coordinator.start()

@@ -20,8 +20,14 @@ public struct InventorySnapshot: Sendable, Equatable {
     public let files: [FileSummary]
 
     init(_ inventory: Inventory) {
-        self.generation = inventory.generation
-        self.files = inventory.entries.map { e in
+        self.init(revision: inventory.generation, entries: inventory.entries)
+    }
+
+    /// v1: the LOCAL commit revision (review Q5) plus the effective
+    /// (tombstone-applied) entry set.
+    init(revision: UInt64, entries: [InventoryEntry]) {
+        self.generation = revision
+        self.files = entries.map { e in
             FileSummary(
                 fileID: e.fileID,
                 unpaddedLength: e.unpaddedLength,

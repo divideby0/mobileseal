@@ -52,12 +52,22 @@ final class FakeClock: @unchecked Sendable {
 struct TestVault {
     let directory: URL
     let passwordText: String
+    /// This "device"'s signing identity — one per TestVault, so every
+    /// test runs the real v1 signed-manifest world.
+    let identity: DeviceIdentity
+    let deviceName = "test-device"
+    let rollbackStore: FileRollbackStateStore
 
     init(passwordText: String = "correct horse battery staple") throws {
-        self.directory = FileManager.default.temporaryDirectory
+        let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("vaultcore-tests-\(UUID().uuidString)")
-            .appendingPathComponent("gallery")
+        self.directory = root.appendingPathComponent("gallery")
         self.passwordText = passwordText
+        self.identity = try DeviceIdentity.generate()
+        // Device-local state lives OUTSIDE the vault directory, as in
+        // production (GOAL WS B.7).
+        self.rollbackStore = FileRollbackStateStore(
+            fileURL: root.appendingPathComponent("device-local/rollback.json"))
     }
 
     func password() throws -> SecureBytes {
@@ -68,6 +78,15 @@ struct TestVault {
     func create(clock: VaultClock = .system) throws -> SealedVault {
         let pw = try password()
         return try SealedVault.create(
+            at: directory, password: pw, kdfParams: testKDF,
+            identity: identity, deviceName: deviceName, clock: clock)
+    }
+
+    /// A pre-migration (format v0) vault — migration-suite input.
+    @discardableResult
+    func createV0(clock: VaultClock = .system) throws -> SealedVault {
+        let pw = try password()
+        return try SealedVault.createV0(
             at: directory, password: pw, kdfParams: testKDF, clock: clock)
     }
 
@@ -75,9 +94,26 @@ struct TestVault {
         try SealedVault(directory: directory, clock: clock)
     }
 
-    func unlock(clock: VaultClock = .system) throws -> UnlockSession {
+    func unlock(
+        clock: VaultClock = .system, acceptRollback: Bool = false
+    ) throws -> UnlockSession {
         let pw = try password()
-        return try open(clock: clock).unlock(password: pw)
+        return try open(clock: clock).unlock(
+            password: pw, identity: identity, deviceName: deviceName,
+            rollbackStore: rollbackStore, acceptRollback: acceptRollback)
+    }
+
+    /// Unlocks as a DIFFERENT device (its own identity + device-local
+    /// state) — the restored-backup / second-device scenarios.
+    func unlock(
+        as identity: DeviceIdentity, named name: String,
+        rollbackStore: any RollbackStateStore,
+        acceptRollback: Bool = false
+    ) throws -> UnlockSession {
+        let pw = try password()
+        return try open().unlock(
+            password: pw, identity: identity, deviceName: name,
+            rollbackStore: rollbackStore, acceptRollback: acceptRollback)
     }
 
     func destroy() {
@@ -106,6 +142,47 @@ struct TestVault {
         precondition(offset < bytes.count)
         bytes[offset] ^= 0xFF
         try Data(bytes).write(to: url)
+    }
+}
+
+/// Per-vault-directory test identity + rollback store, so repeated
+/// unlocks of the same vault behave like ONE device (as in
+/// production) without every legacy call site threading identity.
+final class TestUnlockContext: @unchecked Sendable {
+    static let shared = TestUnlockContext()
+    private let lock = NSLock()
+    private var identities: [String: DeviceIdentity] = [:]
+    private var stores: [String: FileRollbackStateStore] = [:]
+
+    func context(for directory: URL) -> (DeviceIdentity, FileRollbackStateStore) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = directory.standardizedFileURL.path
+        if let identity = identities[key], let store = stores[key] {
+            return (identity, store)
+        }
+        let identity = try! DeviceIdentity.generate()
+        let store = FileRollbackStateStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "vaultcore-test-rollback-\(UInt(bitPattern: key.hashValue)).json"))
+        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "vaultcore-test-rollback-\(UInt(bitPattern: key.hashValue)).json"))
+        identities[key] = identity
+        stores[key] = store
+        return (identity, store)
+    }
+}
+
+extension SealedVault {
+    /// Test convenience: unlock as this vault directory's cached test
+    /// device (see `TestUnlockContext`).
+    func unlock(password: borrowing SecureBytes) throws -> UnlockSession {
+        let (identity, store) = TestUnlockContext.shared.context(for: directory)
+        return try unlock(
+            password: password, identity: identity, deviceName: "test-device",
+            rollbackStore: store)
     }
 }
 

@@ -86,7 +86,7 @@ enum FS {
             switch object {
             case .head: return VaultError.corruptHead
             case .galleryMeta: return VaultError.notAVault(path: url.path)
-            case .chunk, .inventory:
+            case .chunk, .inventory, .manifest:
                 return VaultError.ioFailure(operation: "read", path: url.path)
             }
         }
@@ -154,6 +154,39 @@ struct CommitFailpoint: Sendable {
     }
 }
 
+/// Steps of the v0 → v1 migration state machine (GOAL WS B.6), in
+/// order. Crash-injection tests abort after each step and prove the
+/// re-run is an idempotent no-op prefix. The WAL commit inside the
+/// machine additionally exposes every `CommitStep` failpoint.
+enum MigrationStep: Int, CaseIterable, Sendable, Comparable {
+    case identityEnsured = 0
+    case genesisStaged
+    case manifestStaged
+    case committed
+    case highWaterInitialized
+
+    static func < (a: MigrationStep, b: MigrationStep) -> Bool { a.rawValue < b.rawValue }
+}
+
+/// Thrown by the migration failpoint hook to simulate a crash between
+/// migration steps.
+struct SimulatedMigrationCrash: Error, Equatable {
+    let step: MigrationStep
+}
+
+/// Test-only hook: aborts the migration after the given step.
+struct MigrationFailpoint: Sendable {
+    let abortAfter: MigrationStep?
+
+    static let none = MigrationFailpoint(abortAfter: nil)
+
+    func check(_ completed: MigrationStep) throws {
+        if let abortAfter, completed == abortAfter {
+            throw SimulatedMigrationCrash(step: completed)
+        }
+    }
+}
+
 /// One WAL-staged transaction (docs/formats.md §Commit protocol).
 /// Chunks stream into `wal/{txid}/` as they are produced (so imports
 /// never hold a whole file in memory); `commit` then publishes and
@@ -190,15 +223,28 @@ final class CommitTx {
     }
 
     /// Publishes staged objects and swaps HEAD. Returns the committed
-    /// inventory object's address.
+    /// inventory object's address. v0 shape: HEAD is the plain pointer.
     func commit(inventoryObject: [UInt8], failpoint: CommitFailpoint = .none) throws -> ChunkAddress {
+        try commit(
+            manifestObject: inventoryObject, failpoint: failpoint,
+            headBytes: { Head.serialize($0) })
+    }
+
+    /// Generalized commit: `headBytes` renders the HEAD file for the
+    /// committed object's address (v0 plain pointer, or v1 signed
+    /// sealed descriptor). The commit point remains the atomic HEAD
+    /// rename regardless of HEAD format.
+    func commit(
+        manifestObject: [UInt8], failpoint: CommitFailpoint = .none,
+        headBytes: (ChunkAddress) throws -> [UInt8]
+    ) throws -> ChunkAddress {
         let fm = FileManager.default
         try failpoint.check(.stagedChunksWritten)
 
-        // Stage the inventory object (fsync).
-        let inventoryAddress = ChunkAddress.compute(over: inventoryObject)
+        // Stage the manifest/inventory object (fsync).
+        let inventoryAddress = ChunkAddress.compute(over: manifestObject)
         try FS.write(
-            inventoryObject, to: txManifest.appendingPathComponent(inventoryAddress.hex), fsync: true)
+            manifestObject, to: txManifest.appendingPathComponent(inventoryAddress.hex), fsync: true)
         try failpoint.check(.stagedInventoryWritten)
 
         // Publish chunks into the CAS (no-overwrite), then sync dir.
@@ -221,7 +267,7 @@ final class CommitTx {
 
         // COMMIT POINT: atomic HEAD swap (temp + fsync + rename).
         let headTmp = layout.root.appendingPathComponent("HEAD.tmp")
-        try FS.write(Head.serialize(inventoryAddress), to: headTmp, fsync: true)
+        try FS.write(try headBytes(inventoryAddress), to: headTmp, fsync: true)
         do {
             _ = try fm.replaceItemAt(layout.headURL, withItemAt: headTmp)
         } catch {

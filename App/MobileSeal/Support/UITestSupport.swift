@@ -33,6 +33,35 @@ enum UITestSupport {
         UserDefaults.standard.bool(forKey: "mobileseal-uitest-reset")
     }
 
+    /// Present → the committed PRE-MIGRATION fixture vault
+    /// (`Fixtures/v0-vault/gallery`, format v0) is copied into the
+    /// container before startup, so the scripted e2e exercises the
+    /// transparent v0→v1 migration at unlock (CED-13 gate 2).
+    static var wantsV0VaultSeed: Bool {
+        UserDefaults.standard.bool(forKey: "mobileseal-uitest-seed-v0")
+    }
+
+    /// Copies the bundled v0 fixture gallery into the container
+    /// (UI-test mode only; no-op when a gallery already exists, so
+    /// relaunches keep the migrated state).
+    static func seedV0VaultIfRequested(into container: AppContainer) {
+        guard isUITestMode, wantsV0VaultSeed,
+            container.existingGalleryDirectory() == nil,
+            let bundled = Bundle.main.resourceURL?
+                .appendingPathComponent("Fixtures/v0-vault/gallery", isDirectory: true),
+            FileManager.default.fileExists(atPath: bundled.path)
+        else { return }
+        do {
+            try FileManager.default.copyItem(
+                at: bundled, to: container.newGalleryDirectory())
+        } catch {
+            // UI-test-only path: a silent skip would run the migration
+            // e2e without its fixture and fail misleadingly (wave-001
+            // coderabbit) — fail fast instead.
+            preconditionFailure("unable to seed v0 UI-test fixture: \(error)")
+        }
+    }
+
     /// The committed fixture batch (bundled under Fixtures/): sorted
     /// by name for deterministic ordering — mixed JPEG/HEIC, then the
     /// video matrix (fast-start MP4, tail-moov MOV, unsupported-codec

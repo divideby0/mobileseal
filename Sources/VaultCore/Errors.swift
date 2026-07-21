@@ -1,9 +1,21 @@
-/// The on-disk object kinds defined by format v0 (`docs/formats.md`).
+/// The on-disk object kinds defined by formats v0/v1 (`docs/formats.md`).
 public enum VaultObjectKind: String, Sendable, Equatable {
     case galleryMeta = "gallery.meta"
     case chunk
     case inventory
     case head = "HEAD"
+    /// The v1 sealed manifest object (signed-entry snapshot).
+    case manifest
+}
+
+/// The signed object kinds of format v1. Signature failures are typed
+/// per kind so they are distinguishable from AEAD failure AND from each
+/// other (review A3: the tamper gate must not be coarse).
+public enum SignedObjectKind: String, Sendable, Equatable {
+    case addEntry = "add-entry"
+    case tombstone
+    case trustList = "trust-list"
+    case head
 }
 
 /// Every failure VaultCore can surface, typed so that callers (and the
@@ -91,6 +103,22 @@ public enum VaultError: Error, Equatable, Hashable, Sendable {
     /// would permanently mislabel the stored chunks with a dedup hash
     /// describing bytes that were never stored.
     case sourceChangedDuringImport
+
+    // -- signed manifest (format v1) --
+    /// An Ed25519 signature failed to verify on a parsed signed object.
+    /// Distinct from `authenticationFailed` (AEAD layer) by design:
+    /// the verification order is decrypt → parse → verify signature.
+    case signatureInvalid(SignedObjectKind)
+    /// A signed object's author is not in the gallery's trust list.
+    case untrustedSigner(SignedObjectKind)
+    /// The device key store produced an unusable identity.
+    case deviceIdentityInvalid(reason: String)
+    /// Rollback detector (GOAL WS B.7): a KNOWN signer presented a HEAD
+    /// counter older than this device's recorded high-water mark. The
+    /// caller surfaces the "restored from an older backup?" acceptance
+    /// flow; re-unlocking with `acceptRollback: true` re-baselines and
+    /// records the acceptance.
+    case manifestRolledBack(presentedCounter: UInt64, highWaterMark: UInt64)
 
     // -- environment --
     /// An underlying filesystem operation failed.

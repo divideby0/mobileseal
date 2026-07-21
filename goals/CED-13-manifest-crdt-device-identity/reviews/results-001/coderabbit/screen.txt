@@ -1,0 +1,51 @@
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @App/MobileSeal/Support/KeychainDeviceKeyStore.swift around lines 85 -
+  114, Update the keyData cleanup in the key-creation flow around baseQuery
+  and the deferred zeroization so the attributes dictionary no longer
+  retains kSecValueData before keyData is cleared. Remove the dictionary’s
+  kSecValueData entry after SecItemAdd (including all return and error
+  paths) or otherwise ensure unique storage, then let the existing defer
+  zeroize the original buffer.
+
+
+────────────────────────────────────────────────────────────────────────
+  major [Security & Privacy]
+  → CONTEXT.md:51-56
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @CONTEXT.md around lines 51 - 56, Update the Tombstone contract
+  documentation to explicitly state how entry-scoped tombstones remove the
+  entire media aggregate: either define deterministic coordinator expansion
+  into tombstones for every linked asset, or encode an equivalent
+  aggregate-deletion rule. Ensure thumbnails and Live-Photo videos are
+  covered, and add a test verifying all linked assets are deleted.
+
+
+────────────────────────────────────────────────────────────────────────
+  minor [Security & Privacy]
+  → Sources/VaultCore/RollbackStateStore.swift:58-65
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @Sources/VaultCore/RollbackStateStore.swift around lines 58 - 65,
+  Update RollbackStateStore.load() to treat only a missing state file as an
+  empty State; propagate all other Data(contentsOf:) read failures as
+  VaultError.ioFailure for the rollback-state path. Preserve the existing
+  JSON decoding error handling and first-run behavior for a nonexistent url.
+
+captured 6231 bytes of prompts
+
+REVIEW COMPLETE
+=== CODERABBIT REVIEWER DONE ===
+
+ openclaw  .../CED-13-manifest-crdt-device-identity   CED-13-manifest-crdt-device-identity ?⇡  ⎈ gke-spanland-prod   19:20 
+❯

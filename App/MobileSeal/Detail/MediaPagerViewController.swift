@@ -71,6 +71,24 @@ final class MediaPagerViewController: UIPageViewController {
                 equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
         ])
 
+        // Single delete (CED-13 WS C.2): confirmation → soft delete
+        // into Recently Deleted; the pager advances like Photos.
+        var trashConfig = UIButton.Configuration.plain()
+        trashConfig.image = UIImage(systemName: "trash")
+        trashConfig.baseForegroundColor = .white
+        let trash = UIButton(configuration: trashConfig)
+        trash.translatesAutoresizingMaskIntoConstraints = false
+        trash.addAction(
+            UIAction { [weak self] _ in self?.confirmDeleteCurrent() }, for: .touchUpInside)
+        trash.accessibilityIdentifier = "pager-delete"
+        view.addSubview(trash)
+        NSLayoutConstraint.activate([
+            trash.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            trash.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+        ])
+
         if UITestSupport.isUITestMode {
             installPlaybackDebugOverlay()
         }
@@ -160,6 +178,44 @@ final class MediaPagerViewController: UIPageViewController {
             if item.isVideo {
                 store.playback.warmNeighbor(fileID: item.id, byteLength: item.byteLength)
             }
+        }
+    }
+
+    // MARK: - delete (CED-13 WS C.2)
+
+    /// Photos-parity single delete: confirmation sheet → soft delete
+    /// (Recently Deleted) → advance to the next item, or dismiss when
+    /// the pager empties.
+    private func confirmDeleteCurrent() {
+        let item = currentItem
+        let alert = UIAlertController(
+            title: "Remove this item?",
+            message:
+                "It moves to Recently Deleted for \(RecentlyDeletedStore.retentionDays) days, then is removed from the vault.",
+            preferredStyle: .alert)
+        alert.addAction(
+            UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
+                self?.deleteItem(item)
+            })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func deleteItem(_ item: MediaItem) {
+        store.softDelete([item.id])
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items.remove(at: index)
+        guard !items.isEmpty else {
+            animateDismiss()
+            return
+        }
+        let nextIndex = min(index, items.count - 1)
+        currentIndex = nextIndex
+        store.playback.releasePlayer()
+        setViewControllers(
+            [makePage(at: nextIndex)], direction: .forward, animated: true
+        ) { [weak self] _ in
+            self?.landed(on: nextIndex)
         }
     }
 

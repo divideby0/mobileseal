@@ -17,7 +17,10 @@ import VaultCore
     @Test func missingThumbnailRegeneratesThroughStoreWiring() async throws {
         let container = try TestSupport.makeContainer()
         let coordinator = VaultCoordinator(
-            container: container, calibration: TestSupport.fastCalibration)
+            container: container, calibration: TestSupport.fastCalibration,
+            deviceKeyStore: TestDeviceKeyStore(
+                url: container.deviceLocalDir.appendingPathComponent("test-device-key")),
+            deviceName: "app-test-device")
         let defaults = UserDefaults(suiteName: "recovery-tests-\(UUID().uuidString)")!
         let store = VaultStore(
             coordinator: coordinator, container: container, defaults: defaults)

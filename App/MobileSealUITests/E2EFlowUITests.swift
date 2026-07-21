@@ -51,12 +51,11 @@ final class E2EFlowUITests: XCTestCase {
         confirmField.typeText(password)
         app.buttons["setup-create"].tap()
 
-        // --- Import the committed fixture batch.
-        let importFixtures = app.buttons["import-fixtures-button"]
+        // --- Import the committed fixture batch (seam in the More
+        // menu — the toolbar keeps exactly two trailing items).
         XCTAssertTrue(
-            importFixtures.waitForExistence(timeout: 60),
+            app.tapMoreMenuItem(label: "Import Fixtures", timeout: 60),
             "gallery (unlocked) never appeared after create")
-        importFixtures.tap()
 
         // 110 healthy images (first carries the Live Photo pair) + 3
         // videos (fast-start MP4, tail-moov MOV, unsupported-codec

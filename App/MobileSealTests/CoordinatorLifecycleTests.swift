@@ -24,7 +24,10 @@ import VaultCore
         _ = await TestSupport.waitUntil { vault.sink.phase == .locked }
 
         let second = VaultCoordinator(
-            container: vault.container, calibration: TestSupport.fastCalibration)
+            container: vault.container, calibration: TestSupport.fastCalibration,
+            deviceKeyStore: TestDeviceKeyStore(
+                url: vault.container.deviceLocalDir.appendingPathComponent("test-device-key")),
+            deviceName: "app-test-device")
         let sink2 = RecordingSink()
         await second.attach(sink: sink2)
         await second.start()
@@ -77,7 +80,10 @@ import VaultCore
         // and the failure must read "open elsewhere" (single-scene
         // policy: never a crash).
         let second = VaultCoordinator(
-            container: vault.container, calibration: TestSupport.fastCalibration)
+            container: vault.container, calibration: TestSupport.fastCalibration,
+            deviceKeyStore: TestDeviceKeyStore(
+                url: vault.container.deviceLocalDir.appendingPathComponent("test-device-key")),
+            deviceName: "app-test-device")
         let sink2 = RecordingSink()
         await second.attach(sink: sink2)
         await second.start()
