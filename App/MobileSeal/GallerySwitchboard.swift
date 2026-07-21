@@ -137,7 +137,11 @@ actor GallerySwitchboard {
     /// Switch transaction (gate 2): full teardown of whatever is
     /// live, then the target's unlock screen. A wrong target password
     /// leaves the app ON that unlock screen with everything locked
-    /// (plan review Q15); Back returns to the list.
+    /// (plan review Q15); Back returns to the list. NOTE (wave-001
+    /// claude-code #3): the shipped UI composes switches from
+    /// `backToList()` + `select(_:)`; this single-transaction form
+    /// exists for the gate-3 double-switch race coverage and any
+    /// future direct-switch affordance.
     func switchTo(_ id: UUID) async {
         await serialized { await self.performSwitchTo(id) }
     }
@@ -202,7 +206,13 @@ actor GallerySwitchboard {
 
     private func performSelect(_ id: UUID) async {
         await teardownIfLive()  // defensive: the list should hold no DEK
-        guard let record = snapshot.records.first(where: { $0.id == id }) else { return }
+        guard let record = snapshot.records.first(where: { $0.id == id }) else {
+            // A stale tile (its directory vanished since the scan)
+            // must not be a silent no-op: rescan and re-publish so
+            // the list reflects reality (wave-001 coderabbit #6).
+            await performBackToList()
+            return
+        }
         await selectRecord(record)
     }
 
@@ -242,14 +252,21 @@ actor GallerySwitchboard {
 
     private func performCreateGallery(name: String?, password: String) async {
         await teardownIfLive()
+        let previouslySelected = selected
         if selected != nil {
             await coordinator.deselect()
             selected = nil
             await publishRoute(.list)
         }
         guard let id = await coordinator.createGallery(password: password) else {
-            // Failure already surfaced through the coordinator's sink;
-            // the route is unchanged (setup screen or create sheet).
+            // Failure already surfaced through the coordinator's
+            // sink. Restore whatever was active before the attempt —
+            // a single-gallery user creating from Settings must land
+            // back in their gallery flow, not stranded on the list
+            // (wave-001 coderabbit #7).
+            if let previouslySelected {
+                await selectRecord(previouslySelected)
+            }
             return
         }
         // Crash between create and this record is a covered creation

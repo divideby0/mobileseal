@@ -121,6 +121,18 @@ private struct GalleryTile: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(name)
+        // Machine-readable cover state for the e2e gate (wave-001
+        // coderabbit #2): a cover-rendering regression must fail the
+        // scripted list assertion, not just the unit canaries.
+        .accessibilityValue(hasCover ? "cover" : "generic")
+    }
+
+    private var hasCover: Bool {
+        #if os(iOS)
+            return store.coverImages[record.id] != nil
+        #else
+            return false
+        #endif
     }
 
     private var genericGlyph: some View {
@@ -144,6 +156,8 @@ private struct GalleryErrorTile: View {
             return "Duplicate gallery — this folder is a copy of another gallery. Remove or separate the copies to open them."
         case .unreadableMeta:
             return "Unreadable gallery — its key data is missing or damaged."
+        case .scanFailed:
+            return "Galleries could not be listed — the storage location is unreadable."
         }
     }
 

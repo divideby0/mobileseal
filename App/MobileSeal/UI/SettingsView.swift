@@ -6,6 +6,10 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var calibration: KDFCalibrator.Record?
     @State private var galleryName = ""
+    /// The gallery whose name this sheet is editing: the dismiss-save
+    /// below must not write onto a DIFFERENT gallery selected while
+    /// the sheet was up (the New Gallery flow swaps the selection).
+    @State private var editingGalleryID: UUID?
     @State private var showCreate = false
 
     var body: some View {
@@ -107,9 +111,19 @@ struct SettingsView: View {
             .task {
                 calibration = store.loadCalibrationRecord()
                 galleryName = store.selectedGalleryName ?? ""
+                editingGalleryID = store.selectedGalleryID
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            // Swipe-to-dismiss must not silently drop a typed name
+            // (wave-001 coderabbit #5); setGalleryName is idempotent,
+            // so the Done-button double-save is harmless. Guarded to
+            // the gallery this sheet was editing.
+            .onDisappear {
+                if store.selectedGalleryID == editingGalleryID {
+                    store.setGalleryName(galleryName)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {

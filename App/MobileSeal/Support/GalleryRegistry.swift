@@ -27,8 +27,14 @@ struct GalleryDiscoveryFailure: Identifiable, Equatable, Sendable {
         /// state (labels, prefs, soft-delete ledgers) is UUID-keyed
         /// and would silently cross-apply.
         case duplicateGalleryID(UUID)
-        /// `gallery.meta` unreadable or structurally invalid.
+        /// `gallery.meta` missing, unreadable, or structurally
+        /// invalid — while gallery CONTENT is present (wave-001 codex
+        /// #1: a lost meta must never make a gallery silently vanish
+        /// into the "no galleries" setup route).
         case unreadableMeta(String)
+        /// The galleries root itself could not be enumerated: shown
+        /// instead of an indistinguishable empty scan.
+        case scanFailed(String)
     }
 
     var id: String { directory.lastPathComponent }
@@ -72,7 +78,22 @@ struct GalleryRegistry: Sendable {
         var failures: [GalleryDiscoveryFailure] = []
         let sidecar = loadSidecar()
 
-        for directory in container.galleryDirectories() {
+        let directories: [URL]
+        do {
+            directories = try container.galleryDirectories()
+        } catch {
+            // An enumeration failure is REPRESENTED, never collapsed
+            // to an empty scan that would route to setup (wave-001
+            // codex #1).
+            return GallerySnapshot(
+                records: [],
+                failures: [
+                    GalleryDiscoveryFailure(
+                        directory: container.galleriesDir,
+                        reason: .scanFailed(String(describing: error)))
+                ])
+        }
+        for directory in directories {
             if let active = activeRecord,
                 directory.standardizedFileURL.path == active.directory.standardizedFileURL.path
             {
@@ -84,6 +105,16 @@ struct GalleryRegistry: Sendable {
                 let created = sidecar.createdAt[meta.galleryID.uuidString.lowercased()]
                 byID[meta.galleryID, default: []].append((directory, created))
             } catch {
+                // A husk from a crashed creation (no meta AND nothing
+                // that could hold data) is debris, not damage — the
+                // error tile is reserved for directories with content
+                // to lose.
+                if Self.isCreationDebris(directory) {
+                    Self.log.info(
+                        "ignoring empty creation debris at \(directory.lastPathComponent, privacy: .public)"
+                    )
+                    continue
+                }
                 failures.append(
                     GalleryDiscoveryFailure(
                         directory: directory,
@@ -117,6 +148,26 @@ struct GalleryRegistry: Sendable {
         }
         failures.sort { $0.directory.lastPathComponent < $1.directory.lastPathComponent }
         return GallerySnapshot(records: records, failures: failures)
+    }
+
+    /// True when `directory` is a crashed creation's empty husk: no
+    /// `gallery.meta`, no HEAD, and no objects under chunks/ or
+    /// manifest/ — provably nothing to lose. Anything else without a
+    /// parsable meta is an error tile.
+    private static func isCreationDebris(_ directory: URL) -> Bool {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: directory.appendingPathComponent("gallery.meta").path)
+        else { return false }
+        guard !fm.fileExists(atPath: directory.appendingPathComponent("HEAD").path) else {
+            return false
+        }
+        for sub in ["chunks", "manifest"] {
+            let contents =
+                (try? fm.contentsOfDirectory(
+                    atPath: directory.appendingPathComponent(sub).path)) ?? []
+            if contents.contains(where: { $0 != ".DS_Store" }) { return false }
+        }
+        return true
     }
 
     // MARK: - Sidecar
@@ -217,17 +268,34 @@ struct GalleryRegistry: Sendable {
         guard let first = records.first else { return }
         let fm = FileManager.default
 
-        // Calibration: copy → verify → remove source. Crash between
-        // copy and remove re-runs as: target exists → skip copy →
-        // remove source.
+        // Calibration: validate → atomic write → read-back verify →
+        // remove source (wave-001 codex #2: an existing target is
+        // only trusted if it DECODES — a partial file from a crashed
+        // copy is replaced from the still-intact legacy record, never
+        // the other way around; the source is removed only after the
+        // destination provably holds a valid record).
         let legacy = container.legacyCalibrationURL
         let target = container.calibrationURL(galleryID: first.id)
+        func decodesAsRecord(_ url: URL) -> Bool {
+            guard let data = try? Data(contentsOf: url) else { return false }
+            return (try? JSONDecoder().decode(KDFCalibrator.Record.self, from: data)) != nil
+        }
         if fm.fileExists(atPath: legacy.path) {
-            if !fm.fileExists(atPath: target.path) {
-                try fm.copyItem(at: legacy, to: target)
+            if decodesAsRecord(legacy) {
+                if !decodesAsRecord(target) {
+                    let data = try Data(contentsOf: legacy)
+                    try data.write(to: target, options: [.atomic])
+                }
+                try failpoint.check(.afterCalibrationCopied)
+                if decodesAsRecord(target) {
+                    try fm.removeItem(at: legacy)
+                }
+            } else {
+                // The legacy record itself is unreadable: preserve it
+                // (never delete the only copy), report, move on — the
+                // record is a display artifact, not custody state.
+                Self.log.error("legacy calibration record undecodable — left in place")
             }
-            try failpoint.check(.afterCalibrationCopied)
-            try fm.removeItem(at: legacy)
         }
         try failpoint.check(.afterCalibrationLegacyRemoved)
 

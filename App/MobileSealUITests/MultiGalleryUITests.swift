@@ -149,6 +149,15 @@ final class MultiGalleryUITests: XCTestCase {
         XCTAssertTrue(
             app.staticTexts["Beta Vault"].waitForExistence(timeout: 10),
             "device-local name missing from the locked list")
+        // The chosen cover RENDERS on the locked list (tile 1 = the
+        // newer Beta gallery): its machine-readable state flips from
+        // "generic" to "cover".
+        let tile1 = app.buttons["gallery-tile-1"]
+        XCTAssertTrue(tile1.waitForExistence(timeout: 10))
+        XCTAssertTrue(
+            waitUntil(timeout: 15) { tile1.value as? String == "cover" },
+            "cover never rendered on the locked list; value=\(String(describing: tile1.value))"
+        )
 
         // Gallery 1 (older created-date → tile 0): WRONG password
         // leaves the app on ITS unlock screen, locked (plan review

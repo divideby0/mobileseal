@@ -138,19 +138,21 @@ struct AppContainer: Sendable {
             "label-\(galleryID.uuidString.lowercased()).sealed")
     }
 
-    /// Every directory under galleries/ carrying a `gallery.meta`,
-    /// sorted by basename for deterministic ordering (CED-14 WS A.1 —
-    /// the registry's discovery scan; identity comes from the meta
-    /// UUID, the path is location only).
-    func galleryDirectories() -> [URL] {
-        let fm = FileManager.default
-        guard
-            let entries = try? fm.contentsOfDirectory(
-                at: galleriesDir, includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles])
-        else { return [] }
-        return entries.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .filter { fm.fileExists(atPath: $0.appendingPathComponent("gallery.meta").path) }
+    /// EVERY directory under galleries/, sorted by basename (CED-14
+    /// WS A.1 — the registry's discovery scan; identity comes from
+    /// the meta UUID, the path is location only). Deliberately does
+    /// NOT pre-filter on `gallery.meta` (wave-001 codex #1): a
+    /// gallery whose meta went missing must surface as an ERROR TILE,
+    /// not silently vanish into a "no galleries" setup route. Throws
+    /// on an enumeration failure so the registry can represent it
+    /// explicitly instead of an indistinguishable empty scan.
+    func galleryDirectories() throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
+            at: galleriesDir, includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+        .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
     /// Directory-level Data Protection: files created inside inherit
@@ -166,9 +168,11 @@ struct AppContainer: Sendable {
 
     // MARK: - Gallery discovery
 
-    /// The single gallery this leg manages (Multiple Galleries is the
-    /// next map ticket). Discovery = first directory under galleries/
-    /// containing a gallery.meta.
+    /// First-gallery helper retained for UI-test seeding
+    /// (`UITestSupport.seedV0VaultIfRequested`) and coordinator-level
+    /// test fixtures. NOT the production discovery path since CED-14 —
+    /// that is `galleryDirectories()` + `GalleryRegistry.scan()`
+    /// (wave-001 claude-code #4).
     func existingGalleryDirectory() -> URL? {
         let fm = FileManager.default
         guard

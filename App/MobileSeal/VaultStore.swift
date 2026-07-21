@@ -312,7 +312,14 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
         } else {
             selectedGalleryID = nil
         }
-        if case .list = route { reloadLabels() }
+        if case .list = route {
+            reloadLabels()
+        } else {
+            // Covers render only on the list: leaving it drops both
+            // the decoded images and the cached compressed bytes
+            // (wave-001 claude-code #2).
+            purgeCoverImages()
+        }
     }
 
     func registryChanged(_ snapshot: GallerySnapshot) {
@@ -419,31 +426,53 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
 
     /// Re-reads every discovered gallery's label. Reads are cheap
     /// (small sealed files); failures are typed and degrade to
-    /// generic tiles.
+    /// generic tiles. Cover material — compressed AND decoded — is
+    /// held ONLY while the list is the visible surface and the shield
+    /// is down (wave-001 claude-code #1/#2): covers render nowhere
+    /// else, so off-list the cache keeps names only.
     func reloadLabels() {
+        var coversWanted = false
+        if case .list = route { coversWanted = !shielded }
         var labels: [UUID: GalleryLabelOutcome] = [:]
         for record in registrySnapshot.records {
-            labels[record.id] = labelStore.label(for: record.id)
+            var outcome = labelStore.label(for: record.id)
+            if !coversWanted, case .labeled(var label) = outcome, label.coverJPEG != nil {
+                label.coverJPEG = nil
+                outcome = .labeled(label)
+            }
+            labels[record.id] = outcome
         }
         galleryLabels = labels
         #if os(iOS)
-            guard !shielded else { return }
             var covers: [UUID: UIImage] = [:]
-            for (id, outcome) in labels {
-                if case .labeled(let label) = outcome, let jpeg = label.coverJPEG,
-                    let image = UIImage(data: jpeg)
-                {
-                    covers[id] = image
+            if coversWanted {
+                for (id, outcome) in labels {
+                    if case .labeled(let label) = outcome, let jpeg = label.coverJPEG,
+                        let image = UIImage(data: jpeg)
+                    {
+                        covers[id] = image
+                    }
                 }
             }
             coverImages = covers
         #endif
     }
 
+    /// Drops BOTH cover forms from memory: the decoded images and the
+    /// compressed bytes cached in `galleryLabels` (wave-001
+    /// claude-code #1 — "covers purge with the shield" means the
+    /// plaintext, not just the rendered pixels). Names stay for the
+    /// locked-list tiles.
     private func purgeCoverImages() {
         #if os(iOS)
             coverImages = [:]
         #endif
+        for (id, outcome) in galleryLabels {
+            if case .labeled(var label) = outcome, label.coverJPEG != nil {
+                label.coverJPEG = nil
+                galleryLabels[id] = .labeled(label)
+            }
+        }
     }
 
     /// The selected gallery's display name (nil = unlabeled).

@@ -164,7 +164,15 @@ struct GalleryLabelStore: Sendable {
     func setLabel(_ label: GalleryLabel, for galleryID: UUID) throws {
         let url = container.labelURL(galleryID: galleryID)
         if label.isEmpty {
-            try? FileManager.default.removeItem(at: url)
+            // Only "already absent" is a benign clear; a real removal
+            // failure must surface — silently keeping the old sealed
+            // record would report a stale name/cover as if the clear
+            // succeeded (wave-001 coderabbit #4).
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                // Nothing to clear.
+            }
             return
         }
         let key = try keyStore.loadOrCreateKey()

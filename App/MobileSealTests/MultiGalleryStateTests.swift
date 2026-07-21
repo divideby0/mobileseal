@@ -76,6 +76,44 @@ import VaultCore
         #expect(duplicates.count == 2)
     }
 
+    /// Wave-001 codex #1: a gallery whose `gallery.meta` is GONE (but
+    /// whose content survives) must surface as an error tile, never
+    /// silently vanish into the "no galleries" setup route.
+    @Test func missingMetaWithContentSurfacesAsErrorTile() async throws {
+        let container = try TestSupport.makeContainer()
+        defer { TestSupport.removeContainer(container) }
+        let registry = GalleryRegistry(container: container)
+
+        let a = try createGallery(in: container)
+        try FileManager.default.removeItem(
+            at: a.directory.appendingPathComponent("gallery.meta"))
+
+        let snapshot = registry.scan()
+        #expect(snapshot.records.isEmpty)
+        #expect(snapshot.failures.count == 1)
+        if case .unreadableMeta = snapshot.failures[0].reason {
+        } else {
+            Issue.record("expected unreadableMeta, got \(snapshot.failures[0].reason)")
+        }
+    }
+
+    /// A crashed creation's empty husk (no meta, no HEAD, no objects)
+    /// is debris, not damage — skipped, not an error tile.
+    @Test func emptyCreationDebrisIsIgnored() async throws {
+        let container = try TestSupport.makeContainer()
+        defer { TestSupport.removeContainer(container) }
+        let registry = GalleryRegistry(container: container)
+
+        let husk = container.newGalleryDirectory()
+        for sub in ["chunks", "manifest", "wal"] {
+            try FileManager.default.createDirectory(
+                at: husk.appendingPathComponent(sub), withIntermediateDirectories: true)
+        }
+        let snapshot = registry.scan()
+        #expect(snapshot.records.isEmpty)
+        #expect(snapshot.failures.isEmpty)
+    }
+
     @Test func unreadableMetaSurfacesAsErrorTile() async throws {
         let container = try TestSupport.makeContainer()
         defer { TestSupport.removeContainer(container) }
@@ -210,6 +248,40 @@ import VaultCore
         // …then the next launch's ordinary run converges fully.
         try registry.migrateIfNeeded(records: registry.scan().records, defaults: defaults)
         try assertMigrated(container, defaults: defaults, galleryID: a.id)
+    }
+
+    /// Wave-001 codex #2: a PARTIAL destination (crash mid-copy) must
+    /// be repaired FROM the intact legacy record — never trusted by
+    /// mere existence while the legacy source gets deleted.
+    @Test func migrationRepairsCorruptTargetFromLegacy() async throws {
+        let container = try TestSupport.makeContainer()
+        defer { TestSupport.removeContainer(container) }
+        let defaults = UserDefaults(suiteName: "migration-corrupt-\(UUID().uuidString)")!
+        let registry = GalleryRegistry(container: container)
+        let a = try createGallery(in: container)
+        try plantLegacyState(container, defaults: defaults)
+        // A truncated/corrupt target from an interrupted earlier run.
+        try Data("{ partial".utf8).write(to: container.calibrationURL(galleryID: a.id))
+
+        try registry.migrateIfNeeded(records: registry.scan().records, defaults: defaults)
+        try assertMigrated(container, defaults: defaults, galleryID: a.id)
+    }
+
+    /// An undecodable LEGACY record is preserved in place (never the
+    /// only copy deleted), and migration still completes the rest.
+    @Test func undecodableLegacyCalibrationIsPreserved() async throws {
+        let container = try TestSupport.makeContainer()
+        defer { TestSupport.removeContainer(container) }
+        let defaults = UserDefaults(suiteName: "migration-badlegacy-\(UUID().uuidString)")!
+        let registry = GalleryRegistry(container: container)
+        let a = try createGallery(in: container)
+        try Data("not json".utf8).write(to: container.legacyCalibrationURL)
+
+        try registry.migrateIfNeeded(records: registry.scan().records, defaults: defaults)
+        #expect(FileManager.default.fileExists(atPath: container.legacyCalibrationURL.path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: container.calibrationURL(galleryID: a.id).path))
     }
 
     // MARK: - Per-gallery lock preferences (WS A.3)

@@ -309,19 +309,26 @@ import VaultCore
         #expect(await TestSupport.waitUntil { !store.items.isEmpty })
         store.setGalleryName(nameCanary)
         store.setCover(from: store.items[0].id)
+        // The SEALED record holds name + cover; the in-memory cache
+        // deliberately keeps no cover bytes off the list surface
+        // (wave-001 claude-code #1/#2), so verify against the store.
         #expect(
             await TestSupport.waitUntil {
-                if case .labeled(let label) = store.galleryLabels[fx.idB] ?? .unlabeled {
+                if case .labeled(let label) = store.labelStore.label(for: fx.idB) {
                     return label.name == nameCanary && label.coverJPEG != nil
                 }
                 return false
             }, "label + cover never landed")
 
-        guard case .labeled(let label) = store.galleryLabels[fx.idB]!,
+        guard case .labeled(let label) = store.labelStore.label(for: fx.idB),
             let cover = label.coverJPEG
         else {
             Issue.record("labeled outcome vanished")
             return
+        }
+        // Off-list cache residency: names cached, cover bytes NOT.
+        if case .labeled(let cached) = store.galleryLabels[fx.idB] ?? .unlabeled {
+            #expect(cached.coverJPEG == nil, "cover bytes cached off the list surface")
         }
         // A distinctive slice of the cover's compressed payload.
         let needle = [UInt8](cover.subdata(in: cover.count / 2..<cover.count / 2 + 32))
@@ -351,10 +358,16 @@ import VaultCore
             Issue.record("locked list lost the label")
         }
 
-        // …and the decoded cover PURGES with the global shield
-        // (plan review Q19).
+        // …and the cover PURGES with the global shield — BOTH forms:
+        // decoded images and the cached compressed bytes (plan review
+        // Q19; wave-001 claude-code #1).
         store.sceneBecameInactive()
         #expect(store.coverImages.isEmpty)
+        if case .labeled(let shieldedLabel) = store.galleryLabels[fx.idB] ?? .unlabeled {
+            #expect(
+                shieldedLabel.coverJPEG == nil,
+                "compressed cover bytes survived the shield")
+        }
         store.sceneBecameActive()
         #expect(await TestSupport.waitUntil { store.coverImages[fx.idB] != nil })
     }
