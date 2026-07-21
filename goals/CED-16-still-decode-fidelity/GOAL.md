@@ -1,5 +1,5 @@
 ---
-status: started
+status: completed
 created: 2026-07-20T23:02:25-05:00
 author: cedric
 stacked_on: CED-15-media-export-share-import
@@ -8,6 +8,7 @@ issue_url: https://linear.app/cedric-personal/issue/CED-16/fix-still-decode-serv
 linear_project: Mobileseal
 linear_project_id: cccebfd8-6d19-474b-852f-c87bf528dcf6
 started: 2026-07-21T01:33:00-05:00
+completed: 2026-07-21T02:05:30-05:00
 ---
 
 # Fix Still Decode Serving Embedded Previews
