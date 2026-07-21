@@ -27,29 +27,65 @@ Sized M. Grill decisions (session 001) folded.
    calibration at creation — the CED-11 calibrator, per gallery);
    delete-gallery deferred (a gallery with content is a GC/sharing
    question — fog).
-2. **One-unlocked-at-a-time** (grill Q2): switching galleries prompts
-   the target's password and consumes the previous coordinator's
-   lock() first (drain semantics unchanged); scenePhase lock applies
-   to whichever gallery is open. Exactly one live DEK ever.
-3. Per-gallery Settings scope: auto-lock prefs, and per-gallery
-   Recently Deleted stores + rollback high-water marks + trust
-   enrollment (all already per-gallery in core since CED-13 — the
-   app stops hardcoding path assumptions).
+2. **One-unlocked-at-a-time via a single switch authority** (grill
+   Q2; Codex B1/B2/B3): a process-wide `GallerySwitchboard` actor
+   owns ALL select/unlock/lock transitions as serialized
+   transactions — scene events, idle timers, switch taps, and unlock
+   tasks all route through it (the per-path VaultProcessRegistry
+   cannot enforce a cross-path policy). Switching tears down through
+   the FULL VaultStore path (plaintext-adjacent state + thumbnail
+   pipeline purge, then coordinator lock/drain) — never a raw
+   coordinator.lock(). The one-live-DEK proof (gate 3) is custody
+   evidence, not claim counts: old key provably zeroed and escaped
+   readers revoked BEFORE the target's KDF begins, under
+   double-switch and background races. Switch-fail state (Codex
+   Q15): a wrong target password leaves the app on the target's
+   unlock screen with everything locked; Back returns to the list.
+   Auto-lock policy handoff (Codex Q18): the OLD gallery's policy
+   applies until its lock completes; the LIST screen holds no DEK
+   and needs no policy; the target's policy arms at its unlock.
+3. Per-gallery state, with an explicit ownership table (Codex B5/B6
+   — NOT "already per-gallery"): LockPreferences' two global
+   UserDefaults keys become per-gallery-ID keys (with one-time
+   migration of the existing values to gallery #1); calibration.json
+   becomes per-gallery records; RecentlyDeletedStore is already
+   gallery-ID-scoped (keep); **rollback state stays ONE shared
+   `FileRollbackStateStore` instance** injected everywhere (its
+   internal per-gallery keying is correct; multiple instances over
+   one file would race CED-13's fail-closed detector); trust lists
+   are in-gallery (keep). UI-test reset paths clear per-gallery
+   keys. The table (key → owner → migration) is written into the
+   goal's results.
 
 ### Workstream B — switcher UI + device-local labels
 
-1. Gallery list screen (the new app root when >1 gallery exists, and
-   the pre-unlock surface): per-gallery tile with lock state.
-2. **Device-local labels** (grill Q1): optional user-assigned name +
-   cover photo per gallery, stored ONLY on this device — encrypted
-   under a device-local Keychain key (NOT any gallery DEK) so they
-   display pre-unlock while staying protected at rest; never synced,
-   never written into gallery formats (other devices label their
-   own). Unlabeled galleries show generic tiles (index,
-   created-date, optional color/emoji). Choosing a cover is an
-   explicit, per-device opt-in leak; the picker for it runs while
-   the gallery is UNLOCKED (it decrypts one thumbnail into the
-   device-local store).
+1. Gallery list screen (app root when >1 gallery exists; a
+   one-gallery user gets a "New Gallery" affordance in Settings —
+   Codex Q16): per-gallery tile with lock state. **Registry
+   identity = the authoritative `gallery.meta` gallery UUID** (Codex
+   Q17/B7), with directory path as location only; duplicate UUIDs
+   (copied dirs) surface as an error tile, not data loss. **Locked
+   discovery never constructs SealedVault** (Codex B4 —
+   `init` runs WAL recovery): a read-only meta/HEAD structural
+   parser (or cached registry metadata) feeds the list, and the
+   active gallery's path is never re-opened while claimed.
+   Sealed-plane honesty (Codex A11): tiles show only what's real —
+   registry-recorded created-date, lock state; no counts.
+2. **Device-local labels** (grill Q1; Codex B8/B9/A12/Q19):
+   optional name + cover photo per gallery, this device only.
+   Storage: a NEW dedicated Keychain key (`label-store-key`,
+   `WhenUnlockedThisDeviceOnly` — distinct from the device-identity
+   key), AEAD with gallery-UUID AAD binding; label ciphertext lives
+   in Application Support and MAY ride backup, and the DEFINED
+   restore outcome is graceful loss (key doesn't restore → labels
+   reset to generic tiles; recovery = relabel). Cover pipeline: no
+   plaintext file ever (decrypt → downscale in memory → seal under
+   the label key in one pass); decoded cover pixels pre-unlock are a
+   DISCLOSED memory residual; covers purge with the global shield —
+   the list stays behind the existing `.inactive` shield, so covers
+   never appear in the app-switcher snapshot. Color/emoji is
+   DROPPED (not part of the settled name+cover decision). Unlabeled
+   tiles: index + registry created-date.
 3. Migration: the existing single gallery becomes registry entry #1
    with its current settings; zero-friction relaunch (e2e-gated).
 
@@ -58,17 +94,23 @@ Sized M. Grill decisions (session 001) folded.
 1. `swift test` + app suites + `xcodebuild` (simulator + generic
    device) green; VaultCore untouched or additive-only.
 2. Scripted e2e: existing-vault relaunch lands in its gallery
-   unchanged → create second gallery (distinct password, calibration
-   runs) → import into it → switch back (password prompt; previous
-   locks — registry claim released) → wrong-password on switch fails
-   clean → relaunch shows the gallery list → device-local label +
-   cover set while unlocked, visible on the locked list, absent from
-   every gallery-format file (canary-style scan for label plaintext
-   under gallery dirs).
-3. Custody: one-live-DEK invariant instrumented (registry shows ≤1
-   claim; switch = old zeroed before new unlock completes); cover
-   thumbnails encrypted at rest under the device-local key
-   (container scan finds no plaintext covers).
+   unchanged (migration to registry entry #1 atomic + idempotent,
+   crash-injected, preserving settings/calibration — Codex B7) →
+   create second gallery (distinct password, calibration runs) →
+   import into it → switch back (full-store teardown; wrong password
+   leaves target unlock screen, Back to list) → relaunch shows list
+   → label + cover set while unlocked, visible on locked list,
+   absent from every gallery-format file.
+3. Custody + adversarial matrix (Codex B3/B9/B10): one-live-DEK
+   proven as custody evidence (old key zeroed + readers revoked
+   before target KDF; DEBUG-only probes, no production exposure of
+   registry internals — Codex A13) under rapid A→B→C switching,
+   backgrounding mid-target-KDF, and switching during
+   import/playback/snapshot delivery; registry-creation crash
+   points; corrupt/swapped label records and missing label key
+   (graceful generic-tile fallback, typed, no crash); duplicate
+   gallery UUIDs surface safely; cover plaintext never on disk
+   (container scan incl. tmp) and purged with the shield.
 4. Blind multi-tool review wave (all four reviewers) completed and
    reconciled.
 

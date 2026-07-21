@@ -131,7 +131,7 @@ sharing, iPad, visionOS: beyond this map.
 - Biometric unlock token API (Face ID).
 - Delete-originals "move into vault" flow — at the sync milestone.
 - GC/repair leg — orphan chunks, entry rewrite, snapshot pinning;
-  sharpens once tombstones exist (THIS leg creates them).
+  tombstones exist since CED-13.
 - CI leg — macOS + iOS-simulator lanes.
 - CLI non-LAN role (always-on hub).
 - Pager polish candidates (zoom carryover, pinch-to-grid, filmstrip);
