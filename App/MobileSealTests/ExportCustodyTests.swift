@@ -168,6 +168,82 @@ import VaultCore
         }
     }
 
+    /// Serializes the slice hook against the test (wave-001 codex #1):
+    /// staging parks at the gate, the test cancels, the gate releases,
+    /// and the very next cancellation check must win.
+    actor StagingGate {
+        private var entered = false
+        private var released = false
+        private var enteredContinuation: CheckedContinuation<Void, Never>?
+        private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+        func markEnteredAndWait() async {
+            entered = true
+            enteredContinuation?.resume()
+            enteredContinuation = nil
+            if released { return }
+            await withCheckedContinuation { releaseContinuation = $0 }
+        }
+
+        func waitForEntered() async {
+            if entered { return }
+            await withCheckedContinuation { enteredContinuation = $0 }
+        }
+
+        func release() {
+            released = true
+            releaseContinuation?.resume()
+            releaseContinuation = nil
+        }
+    }
+
+    /// Wave-001 codex #1 regression: staging now runs DETACHED, so a
+    /// lock arriving while a decrypt/write is provably in flight
+    /// reaches the controller immediately (the old actor-inherited
+    /// task starved `prepareForLock` until the whole export finished),
+    /// cancels it at the next slice boundary, and sweeps.
+    @Test func lockCancelsProvablyInFlightStaging() async throws {
+        let vault = try await UnlockedVault.create()
+        defer { Task { await vault.destroy() } }
+        await vault.coordinator.startImport(providers: [
+            FixtureMediaProvider(fixtureURL: try TestSupport.fixtureURL("fixture-0022.jpg"))
+        ])
+        #expect(await TestSupport.waitUntil { vault.sink.lastSummary != nil })
+        _ = await TestSupport.waitUntil { !vault.sink.items.isEmpty }
+
+        let controller = ExportController(container: vault.container)
+        let gate = StagingGate()
+        await controller.setSliceHook { await gate.markEnteredAndWait() }
+        let reader = try #require(vault.sink.currentReader)
+        let plan = vault.sink.items.map {
+            ExportPlanItem(
+                fileID: $0.id, byteLength: $0.byteLength,
+                filename: $0.filename, uti: $0.uti)
+        }
+
+        let staging = Task { try await controller.stage(plan: plan, reader: reader) }
+        // Staging has provably STARTED (parked inside the first slice).
+        await gate.waitForEntered()
+        // The lock path reaches the controller despite the in-flight
+        // write — this alone regresses the starvation bug — and the
+        // gate releases only once the cancel is provably issued.
+        let teardown = Task { await controller.prepareForLock() }
+        #expect(await TestSupport.waitUntil { await controller.debugStagingCancelled })
+        await gate.release()
+        await teardown.value
+
+        do {
+            _ = try await staging.value
+            Issue.record("staging must not survive the lock")
+        } catch let error as ExportError {
+            #expect(error == .cancelled)
+        }
+        #expect(await controller.exportInProgress == false)
+        let leftovers = (try? FileManager.default.contentsOfDirectory(
+            at: vault.container.exportStagingDir, includingPropertiesForKeys: nil)) ?? []
+        #expect(leftovers.isEmpty)
+    }
+
     @Test func stagingCancellationSweepsAndSettles() async throws {
         let vault = try await UnlockedVault.create()
         defer { Task { await vault.destroy() } }

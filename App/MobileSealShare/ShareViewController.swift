@@ -113,12 +113,21 @@ final class ShareViewController: UIViewController {
     }
 
     private func cancel() {
+        // Cancel, then AWAIT the writer's typed cleanup before ending
+        // the request (wave-001 codex #3): iOS may terminate the
+        // extension as soon as the request ends, and ending it before
+        // the in-flight item's partial files are removed would strand
+        // fresh incomplete plaintext until the stale sweep. Anything
+        // already committed stays committed — cancel means "stop",
+        // not "unshare".
+        cancelButton.isEnabled = false
+        statusLabel.text = "Cancelling…"
         stagingTask?.cancel()
-        // The writer removes the in-flight item's partial files on
-        // cancellation (typed cleanup); anything already committed
-        // stays committed — cancel means "stop", not "unshare".
-        extensionContext?.cancelRequest(
-            withError: CocoaError(.userCancelled))
+        Task {
+            _ = await stagingTask?.value
+            extensionContext?.cancelRequest(
+                withError: CocoaError(.userCancelled))
+        }
     }
 
     private static func describe(_ error: InboxError?) -> String {

@@ -21,9 +21,10 @@ import Testing
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("hash-\(UUID().uuidString).bin")
         defer { try? FileManager.default.removeItem(at: url) }
-        // Cross the 1 MiB streaming buffer boundary.
+        // Cross the 1 MiB streaming buffer boundary (wave-001
+        // coderabbit #2: 3 << 18 was 768 KiB — under the buffer).
         var data = Data()
-        for i in 0..<(3 << 18) {
+        for i in 0..<((1 << 20) + 4096) {
             data.append(UInt8(truncatingIfNeeded: i &* 31 &+ 7))
         }
         try data.write(to: url)

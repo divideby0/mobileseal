@@ -22,12 +22,16 @@ struct FakeAttachment: InboxAttachment {
     var representations: [String: URL]
     var behavior: Behavior = .success
 
+    @discardableResult
     func loadFileRepresentation(
         typeIdentifier: String, handler: @escaping @Sendable (URL?, (any Error)?) -> Void
-    ) {
+    ) -> @Sendable () -> Void {
         let representations = self.representations
         let behavior = self.behavior
-        Task.detached {
+        // Mirror NSItemProvider's cancel contract: the returned handle
+        // cancels the load, and the completion then fires with an
+        // error exactly once.
+        let task = Task.detached {
             switch behavior {
             case .success:
                 break
@@ -35,7 +39,12 @@ struct FakeAttachment: InboxAttachment {
                 handler(nil, TestError(reason))
                 return
             case .delay(let seconds):
-                try? await Task.sleep(for: .seconds(seconds))
+                do {
+                    try await Task.sleep(for: .seconds(seconds))
+                } catch {
+                    handler(nil, TestError("load cancelled"))
+                    return
+                }
             }
             guard let source = representations[typeIdentifier] else {
                 handler(nil, TestError("no representation for \(typeIdentifier)"))
@@ -54,6 +63,7 @@ struct FakeAttachment: InboxAttachment {
             handler(tmp, nil)
             try? FileManager.default.removeItem(at: tmp)
         }
+        return { task.cancel() }
     }
 }
 
@@ -402,6 +412,71 @@ struct FakeAttachment: InboxAttachment {
         #expect(scan.committed.isEmpty)
         // Whatever partials the cancel interrupted were removed.
         #expect(scan.incomplete.isEmpty)
+    }
+
+    /// Wave-001 claude-code #1 + coderabbit #4: a Live Photo on a
+    /// nearly-full disk refuses TYPED — the guard sizes the bundle's
+    /// CONTENTS (not the directory node), the refusal is `.diskFull`
+    /// (not a masked `.copyFailed` from a doomed fallback), and no
+    /// partial payload survives.
+    @Test func livePhotoLowDiskRefusesTypedWithNoPartials() async throws {
+        var inbox = try makeInbox()
+        defer { destroy(inbox) }
+        inbox.availableCapacity = { _ in 1_000 }
+
+        let bundle = FileManager.default.temporaryDirectory
+            .appendingPathComponent("live-lowdisk-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        try FileManager.default.copyItem(
+            at: try TestSupport.fixtureURL("fixture-0002.jpg"),
+            to: bundle.appendingPathComponent("IMG_0001.jpg"))
+        try FileManager.default.copyItem(
+            at: try TestSupport.fixtureURL("video-paired.mov"),
+            to: bundle.appendingPathComponent("IMG_0001.mov"))
+        // The bundle directory NODE is tiny; its contents are ~22 KB —
+        // the recursive sizing is what makes the guard fire.
+        #expect(InboxWriter.representationSize(of: bundle) > 20_000)
+
+        let attachment = FakeAttachment(
+            registeredTypeIdentifiers: [
+                UTType.livePhoto.identifier, UTType.jpeg.identifier,
+            ],
+            suggestedName: "IMG_0001.jpg",
+            representations: [
+                UTType.livePhoto.identifier: bundle,
+                UTType.jpeg.identifier: try TestSupport.fixtureURL("fixture-0002.jpg"),
+            ])
+        let outcomes = await InboxWriter(store: inbox).stage(attachments: [attachment])
+        guard case .failed(.diskFull) = outcomes[0].status else {
+            Issue.record("expected diskFull, got \(outcomes[0].status)")
+            return
+        }
+        let scan = inbox.scan()
+        #expect(scan.committed.isEmpty)
+        #expect(scan.incomplete.isEmpty, "a refused live photo must not strand payloads")
+    }
+
+    /// Wave-001 claude-code #2 (narrowed TOCTOU): a victim claimed
+    /// between quota planning and execution is skipped, never
+    /// destroyed under an active import.
+    @Test func quotaExecutionSkipsVictimsClaimedSincePlanning() async throws {
+        var inbox = try makeInbox()
+        inbox.maxItemCount = 1
+        defer { destroy(inbox) }
+        _ = await InboxWriter(store: inbox).stage(
+            attachments: [try jpegAttachment(name: "victim.jpg")])
+        let victim = try #require(inbox.scan().committed.first)
+
+        let plan = try inbox.planQuota(incomingBytes: 100)
+        #expect(plan.victims.map(\.item.id) == [victim.id])
+        // The main app claims the victim in the window.
+        try inbox.claim(itemIDs: [victim.id], galleryID: UUID())
+        inbox.executeQuotaPlan(plan)
+        // The claimed item survives; the quota is transiently over —
+        // the next writer's plan trims further.
+        #expect(inbox.scan().claimed.count == 1)
+        #expect(inbox.readNotices().isEmpty)
     }
 
     // MARK: - concurrent invocations (Codex B9)

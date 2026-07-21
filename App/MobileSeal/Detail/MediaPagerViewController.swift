@@ -118,6 +118,10 @@ final class MediaPagerViewController: UIPageViewController {
     /// shared with the grid flow (the sheet cannot reveal the chosen
     /// destination).
     private func confirmShareCurrent() {
+        // Match the grid affordance (wave-001 claude-code #4): a
+        // second tap while a share is staging must not surface the
+        // "already in progress" error alert.
+        guard !store.exportActive else { return }
         let item = currentItem
         let alert = UIAlertController(
             title: ExportShareFlow.warningTitle(count: 1),

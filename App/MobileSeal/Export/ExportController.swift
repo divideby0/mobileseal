@@ -61,9 +61,31 @@ actor ExportController: VaultLockParticipant {
     /// The batch currently offered to a share sheet (staged, not yet
     /// swept). At most one — the share flow is modal.
     private(set) var activeBatch: ExportBatch?
+    /// Bumped by every teardown (wave-001 coderabbit #3): a staging
+    /// task that finished CONCURRENTLY with a teardown must not hand
+    /// its batch to the sheet — the sweep already ran (or is about
+    /// to), so the files are dead.
+    private var teardownGeneration = 0
+    /// Test seam (wave-001 codex #1): awaited between decrypt slices
+    /// on the DETACHED staging task — tests park staging here to
+    /// deterministically race lock/background cancellation against an
+    /// export that has provably started.
+    var sliceHook: (@Sendable () async -> Void)?
 
     init(container: AppContainer) {
         self.container = container
+    }
+
+    /// Test seam installer (see `sliceHook`).
+    func setSliceHook(_ hook: (@Sendable () async -> Void)?) {
+        sliceHook = hook
+    }
+
+    /// Test probe: true once a teardown has cancelled the in-flight
+    /// staging task (the deterministic-cancellation test sequences its
+    /// gate release on this).
+    var debugStagingCancelled: Bool {
+        stagingTask?.isCancelled ?? false
     }
 
     /// True while staged plaintext exists or a staging write is in
@@ -82,7 +104,15 @@ actor ExportController: VaultLockParticipant {
             throw ExportError.stagingUnavailable("an export is already in progress")
         }
         let container = self.container
-        let task = Task<ExportBatch, Error> {
+        let hook = sliceHook
+        // DETACHED, not actor-inherited (wave-001 codex #1): the
+        // decrypt/write loop is synchronous per slice, and running it
+        // on this actor would starve `prepareForLock`/
+        // `cancelActiveExport` until the whole export finished —
+        // unbounded lock latency and an uncancellable plaintext write.
+        // Off-actor, the loop's per-slice `checkCancellation` observes
+        // the teardown's `cancel()` promptly.
+        let task = Task<ExportBatch, Error>.detached(priority: .userInitiated) {
             let dir: URL
             do {
                 dir = try container.makeExportBatchDirectory()
@@ -98,9 +128,9 @@ actor ExportController: VaultLockParticipant {
                         Self.exportName(filename: item.filename, uti: item.uti, fileID: item.fileID),
                         used: &usedNames)
                     let url = dir.appendingPathComponent(name)
-                    try Self.decryptToFile(
+                    try await Self.decryptToFile(
                         fileID: item.fileID, length: item.byteLength,
-                        reader: reader, destination: url)
+                        reader: reader, destination: url, sliceHook: hook)
                     files.append(ExportFileItem(url: url, filename: name, uti: item.uti))
                 }
             } catch {
@@ -117,12 +147,14 @@ actor ExportController: VaultLockParticipant {
             return ExportBatch(id: UUID(), directory: dir, files: files)
         }
         stagingTask = task
+        let generation = teardownGeneration
         defer { stagingTask = nil }
         let batch = try await task.value
-        // A lock that raced the final write may have already swept
-        // the root: only a batch whose files all still exist is
-        // offered to the sheet.
-        guard files(exist: batch) else {
+        // A teardown that ran while we awaited already swept (or is
+        // sweeping) the root: its generation bump makes the handout
+        // refusal deterministic (wave-001 coderabbit #3), and the
+        // files-exist recheck covers a sweep racing the final write.
+        guard teardownGeneration == generation, files(exist: batch) else {
             try? FileManager.default.removeItem(at: batch.directory)
             throw ExportError.cancelled
         }
@@ -167,6 +199,7 @@ actor ExportController: VaultLockParticipant {
     }
 
     private func tearDownExports() async {
+        teardownGeneration += 1
         stagingTask?.cancel()
         // Await the cancelled task: its defers close every open handle
         // before we sweep, so no unlinked-but-open plaintext vnode can
@@ -185,16 +218,20 @@ actor ExportController: VaultLockParticipant {
 
     /// Streams one entry's plaintext to `destination` in chunk-sized
     /// slices — bounded memory for large videos, cancellation checked
-    /// between slices, the handle closed on every exit path.
+    /// between slices, the handle closed on every exit path. Runs on
+    /// the DETACHED staging task, never this actor.
     private static func decryptToFile(
-        fileID: FileID, length: UInt64, reader: ChunkReader, destination: URL
-    ) throws {
+        fileID: FileID, length: UInt64, reader: ChunkReader, destination: URL,
+        sliceHook: (@Sendable () async -> Void)?
+    ) async throws {
         FileManager.default.createFile(atPath: destination.path, contents: nil)
         AppContainer.applyProtection(.completeUnlessOpen, to: destination)
         let handle = try FileHandle(forWritingTo: destination)
         defer { try? handle.close() }
         var offset: UInt64 = 0
         while offset < length {
+            try Task.checkCancellation()
+            if let sliceHook { await sliceHook() }
             try Task.checkCancellation()
             let slice = Int(min(UInt64(Self.sliceBytes), length - offset))
             let data = try reader.readRange(fileID: fileID, offset: offset, length: slice) {

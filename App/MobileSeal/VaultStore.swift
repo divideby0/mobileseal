@@ -282,9 +282,6 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
     var pendingInboxPrompt: InboxPrompt?
     /// Committed (unclaimed) items, for the Settings per-item view.
     private(set) var stagedInboxItems: [InboxStore.Item] = []
-    /// Item IDs already offered this session — a batch prompts once;
-    /// only NEW arrivals re-prompt (Codex A4).
-    private var promptedInboxItemIDs: Set<UUID> = []
     /// The in-flight claim's item IDs, ordered like the import's
     /// providers (outcome index → item).
     private var activeInboxClaim: [UUID]?
@@ -300,12 +297,17 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
         let scan = inbox.scan()
         stagedInboxItems = scan.committed
         guard pendingInboxPrompt == nil else { return }
-        let unprompted = scan.committed.filter { !promptedInboxItemIDs.contains($0.id) }
+        // The prompted ledger PERSISTS beside the items (wave-001
+        // claude-code #3): a declined batch re-offers only alongside
+        // NEW arrivals, across relaunches too — never merely because
+        // the app restarted.
+        let prompted = inbox.readPromptedIDs()
+        let unprompted = scan.committed.filter { !prompted.contains($0.id) }
         guard !unprompted.isEmpty else { return }
         let notices = inbox.takeNotices()
         pendingInboxPrompt = InboxPrompt(
             items: scan.committed, expiredCount: notices.count)
-        for item in scan.committed { promptedInboxItemIDs.insert(item.id) }
+        inbox.markPrompted(scan.committed.map(\.id))
     }
 
     /// Accept: claims the batch atomically through the switch
@@ -460,7 +462,22 @@ final class VaultStore: VaultUISink, GallerySwitchboardSink {
         if exportActive {
             exportActive = false
             ExportShareFlow.dismissActive()
-            Task { await export.cancelActiveExport() }
+            // Same suspension shield as the lock path (wave-001 codex
+            // #1): without an assertion iOS may suspend the process
+            // before the queued teardown finishes, leaving decrypted
+            // plaintext under StagingExport/ until relaunch.
+            #if os(iOS) && !targetEnvironment(macCatalyst)
+                let assertion = UIApplication.shared.beginBackgroundTask(
+                    withName: "export-cancel")
+                Task {
+                    await export.cancelActiveExport()
+                    if assertion != .invalid {
+                        UIApplication.shared.endBackgroundTask(assertion)
+                    }
+                }
+            #else
+                Task { await export.cancelActiveExport() }
+            #endif
         }
         switch lockPreferences.backgroundPolicy {
         case .immediate:

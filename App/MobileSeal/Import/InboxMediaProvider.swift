@@ -38,6 +38,19 @@ struct InboxMediaProvider: MediaProvider {
             } catch {
                 throw MediaProviderError.loadFailed(String(describing: error))
             }
+            // Re-verify the COPY, not just the source (wave-001
+            // coderabbit #1): a substitution between the source check
+            // and the copy must not stage unverified bytes.
+            let stagedLength = try Self.length(of: dest, part: part)
+            guard stagedLength == part.byteLength else {
+                throw MediaProviderError.integrityMismatch(
+                    "\(part.file): staged length \(stagedLength) ≠ manifest \(part.byteLength)")
+            }
+            let stagedHash = try MediaHashing.blake2b256Hex(of: dest)
+            guard stagedHash == part.blake2b256 else {
+                throw MediaProviderError.integrityMismatch(
+                    "\(part.file): staged payload hash does not match manifest")
+            }
             parts.append(StagedPart(url: dest, role: Self.role(of: part.role), uti: part.uti))
         }
         return parts

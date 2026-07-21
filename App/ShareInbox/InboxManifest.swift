@@ -1,5 +1,50 @@
 import Foundation
 
+/// Shared JSON coding for every inbox sidecar (manifest, claim,
+/// notices, prompted ledger). Dates carry FRACTIONAL seconds
+/// (wave-001 codex #5): plain ISO-8601's one-second granularity made
+/// "oldest committed first" arbitrary for items staged in the same
+/// second — normal for a multi-item batch. Decoding accepts both
+/// forms (fractional and plain) so any pre-fix sidecar still reads.
+enum InboxJSON {
+    // ISO8601DateFormatter is not Sendable — minted per use (the
+    // sidecars are tiny; correctness beats a cached formatter).
+    private static func fractional() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }
+    private static func plain() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }
+
+    static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(fractional().string(from: date))
+        }
+        return encoder
+    }
+
+    static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let string = try container.decode(String.self)
+            if let date = fractional().date(from: string) ?? plain().date(from: string) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(
+                in: container, debugDescription: "unparseable date \(string)")
+        }
+        return decoder
+    }
+}
+
 /// The versioned inbox manifest (CED-15 WS B.1, Codex B9): one JSON
 /// sidecar per staged item, written LAST — its presence IS the commit
 /// point. Everything the main app needs to validate and import the
@@ -96,11 +141,9 @@ struct InboxManifest: Codable, Sendable, Equatable {
     }
 
     static func decode(_ data: Data) throws -> InboxManifest {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         let manifest: InboxManifest
         do {
-            manifest = try decoder.decode(InboxManifest.self, from: data)
+            manifest = try InboxJSON.decoder().decode(InboxManifest.self, from: data)
         } catch {
             throw InboxError.malformedManifest(String(describing: error))
         }
@@ -109,10 +152,7 @@ struct InboxManifest: Codable, Sendable, Equatable {
     }
 
     func encoded() throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(self)
+        try InboxJSON.encoder().encode(self)
     }
 }
 

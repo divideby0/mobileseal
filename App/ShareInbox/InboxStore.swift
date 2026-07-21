@@ -126,9 +126,7 @@ struct InboxStore: Sendable {
                     result.malformed.append(url)
                 }
             } else if name.hasSuffix(".claim.json") {
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                if let claim = try? decoder.decode(
+                if let claim = try? InboxJSON.decoder().decode(
                     InboxClaim.self, from: Data(contentsOf: url)),
                     let itemID = UUID(uuidString: String(name.dropLast(".claim.json".count)))
                 {
@@ -136,6 +134,8 @@ struct InboxStore: Sendable {
                 } else {
                     result.malformed.append(url)
                 }
+            } else if name == Self.promptedName {
+                continue
             } else {
                 payloads.append(url)
             }
@@ -162,8 +162,16 @@ struct InboxStore: Sendable {
             }
         }
         result.incomplete = payloads.filter { !referenced.contains($0.lastPathComponent) }
-        result.committed.sort { $0.manifest.committedAt < $1.manifest.committedAt }
-        result.claimed.sort { $0.manifest.committedAt < $1.manifest.committedAt }
+        // Deterministic oldest-first (wave-001 codex #5): fractional
+        // committedAt, itemID as the total-order tie-breaker.
+        result.committed.sort {
+            ($0.manifest.committedAt, $0.id.uuidString)
+                < ($1.manifest.committedAt, $1.id.uuidString)
+        }
+        result.claimed.sort {
+            ($0.manifest.committedAt, $0.id.uuidString)
+                < ($1.manifest.committedAt, $1.id.uuidString)
+        }
         return result
     }
 
@@ -210,15 +218,27 @@ struct InboxStore: Sendable {
 
     // MARK: - claims (CED-15 WS B.2)
 
+    /// All-or-nothing across the batch (wave-001 codex #4): a failed
+    /// marker write rolls back every marker already written, so a
+    /// recoverable I/O error never leaves half the batch claimed and
+    /// invisible for the rest of the session.
     func claim(itemIDs: [UUID], galleryID: UUID, now: Date = Date()) throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
         let claim = InboxClaim(galleryID: galleryID, claimedAt: now)
-        let data = try encoder.encode(claim)
-        for itemID in itemIDs {
-            let url = inboxDir.appendingPathComponent(InboxManifest.claimName(itemID: itemID))
-            try data.write(to: url, options: [.atomic])
-            Self.applyCustody(to: url)
+        let data = try InboxJSON.encoder().encode(claim)
+        var written: [URL] = []
+        do {
+            for itemID in itemIDs {
+                let url = inboxDir.appendingPathComponent(
+                    InboxManifest.claimName(itemID: itemID))
+                try data.write(to: url, options: [.atomic])
+                written.append(url)
+                Self.applyCustody(to: url)
+            }
+        } catch {
+            for url in written {
+                try? FileManager.default.removeItem(at: url)
+            }
+            throw error
         }
     }
 
@@ -243,21 +263,29 @@ struct InboxStore: Sendable {
 
     // MARK: - quota (Codex A3)
 
-    struct QuotaCheck: Sendable, Equatable {
-        var expired: [InboxExpiryNotice] = []
+    struct QuotaPlan: Sendable, Equatable {
+        struct Victim: Sendable, Equatable {
+            let item: Item
+            let reason: InboxExpiryNotice.Reason
+        }
+
+        /// Oldest-first committed victims that must expire for the
+        /// incoming item to fit.
+        var victims: [Victim] = []
     }
 
-    /// Makes room for an incoming item of `incomingBytes`: oldest
-    /// committed UNCLAIMED items expire (with notices) until both
-    /// bounds hold. Claimed items never expire — an import owns them.
-    /// Throws `.quotaExceeded` when the incoming item alone cannot fit.
-    func enforceQuota(incomingBytes: Int64, incomingItems: Int = 1, now: Date = Date()) throws
-        -> QuotaCheck
-    {
+    /// Computes the expiry plan for an incoming item WITHOUT deleting
+    /// anything (wave-001 codex #2: victims are evicted only after
+    /// the incoming manifest durably commits, via
+    /// `executeQuotaPlan`). Oldest committed UNCLAIMED items are the
+    /// victims; claimed items never expire — an import owns them.
+    /// Throws `.quotaExceeded` when the incoming item alone cannot
+    /// fit even after evicting everything evictable.
+    func planQuota(incomingBytes: Int64, incomingItems: Int = 1) throws -> QuotaPlan {
         guard incomingBytes <= maxTotalBytes, incomingItems <= maxItemCount else {
             throw InboxError.quotaExceeded
         }
-        var check = QuotaCheck()
+        var plan = QuotaPlan()
         var scanned = scan()
         var totalBytes =
             scanned.committed.reduce(0) { $0 + $1.totalBytes }
@@ -268,22 +296,44 @@ struct InboxStore: Sendable {
         {
             guard !scanned.committed.isEmpty else { throw InboxError.quotaExceeded }
             let oldest = scanned.committed.removeFirst()
-            remove(itemID: oldest.id)
+            let reason: InboxExpiryNotice.Reason =
+                totalBytes + incomingBytes > maxTotalBytes ? .quotaBytes : .quotaCount
+            plan.victims.append(QuotaPlan.Victim(item: oldest, reason: reason))
             totalBytes -= oldest.totalBytes
             totalItems -= 1
-            let reason: InboxExpiryNotice.Reason =
-                totalBytes + oldest.totalBytes + incomingBytes > maxTotalBytes
-                ? .quotaBytes : .quotaCount
-            check.expired.append(
+        }
+        return plan
+    }
+
+    /// Executes a quota plan AFTER the incoming commit: victims are
+    /// removed with notices. A victim CLAIMED since the plan was
+    /// computed is skipped (wave-001 claude-code #2 — narrows the
+    /// cross-process claim/expiry TOCTOU; the quota is then
+    /// transiently over and the next writer's plan trims further).
+    /// Residual race (recorded, accepted this leg): with no
+    /// interprocess lock, a claim landing between this existence
+    /// check and the removal still loses its payloads — the import
+    /// then fails typed (`integrityMismatch`, payload missing) and
+    /// the item is discarded, which is the same terminal state quota
+    /// expiry intended.
+    func executeQuotaPlan(_ plan: QuotaPlan, now: Date = Date()) {
+        guard !plan.victims.isEmpty else { return }
+        var expired: [InboxExpiryNotice] = []
+        let fm = FileManager.default
+        for victim in plan.victims {
+            let claimURL = inboxDir.appendingPathComponent(
+                InboxManifest.claimName(itemID: victim.item.id))
+            guard !fm.fileExists(atPath: claimURL.path) else { continue }
+            remove(itemID: victim.item.id)
+            expired.append(
                 InboxExpiryNotice(
-                    itemID: oldest.id,
-                    originalFilename: oldest.manifest.parts.first?.originalFilename,
-                    expiredAt: now, reason: reason))
+                    itemID: victim.item.id,
+                    originalFilename: victim.item.manifest.parts.first?.originalFilename,
+                    expiredAt: now, reason: victim.reason))
         }
-        if !check.expired.isEmpty {
-            appendNotices(check.expired)
+        if !expired.isEmpty {
+            appendNotices(expired)
         }
-        return check
     }
 
     // MARK: - notices
@@ -295,9 +345,7 @@ struct InboxStore: Sendable {
     func appendNotices(_ notices: [InboxExpiryNotice]) {
         var all = readNotices()
         all.append(contentsOf: notices)
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        if let data = try? encoder.encode(all) {
+        if let data = try? InboxJSON.encoder().encode(all) {
             try? data.write(to: noticesURL, options: [.atomic])
             Self.applyCustody(to: noticesURL)
         }
@@ -305,9 +353,7 @@ struct InboxStore: Sendable {
 
     func readNotices() -> [InboxExpiryNotice] {
         guard let data = try? Data(contentsOf: noticesURL) else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([InboxExpiryNotice].self, from: data)) ?? []
+        return (try? InboxJSON.decoder().decode([InboxExpiryNotice].self, from: data)) ?? []
     }
 
     /// Reads and clears pending notices (the prompt consumed them).
@@ -315,6 +361,32 @@ struct InboxStore: Sendable {
         let notices = readNotices()
         try? FileManager.default.removeItem(at: noticesURL)
         return notices
+    }
+
+    // MARK: - prompted ledger (wave-001 claude-code #3)
+
+    /// The exactly-once-per-batch prompt guarantee survives relaunch:
+    /// prompted (accepted OR declined) item IDs persist beside the
+    /// items they describe, so a declined batch re-offers only
+    /// alongside NEW arrivals — never merely because the app
+    /// restarted. Pruned to live items on every write.
+    static let promptedName = "prompted.json"
+
+    private var promptedURL: URL { inboxDir.appendingPathComponent(Self.promptedName) }
+
+    func readPromptedIDs() -> Set<UUID> {
+        guard let data = try? Data(contentsOf: promptedURL) else { return [] }
+        return (try? InboxJSON.decoder().decode(Set<UUID>.self, from: data)) ?? []
+    }
+
+    func markPrompted(_ ids: [UUID]) {
+        let scanned = scan()
+        let live = Set(scanned.committed.map(\.id)).union(scanned.claimed.map(\.id))
+        let merged = readPromptedIDs().intersection(live).union(ids)
+        if let data = try? InboxJSON.encoder().encode(merged) {
+            try? data.write(to: promptedURL, options: [.atomic])
+            Self.applyCustody(to: promptedURL)
+        }
     }
 
     // MARK: - payload access

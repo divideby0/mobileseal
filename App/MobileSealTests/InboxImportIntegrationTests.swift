@@ -85,8 +85,14 @@ import VaultCore
         // Inbox cleared: no committed, no claims, no payloads.
         #expect(await TestSupport.waitUntil { fx.inbox.scan().committed.isEmpty })
         #expect(fx.inbox.scan().claimed.isEmpty)
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: fx.inbox.inboxDir, includingPropertiesForKeys: nil)) ?? []
+        // Item files all gone; only the bookkeeping sidecars (prompted
+        // ledger, notices) may remain.
+        let files = ((try? FileManager.default.contentsOfDirectory(
+            at: fx.inbox.inboxDir, includingPropertiesForKeys: nil)) ?? [])
+            .filter {
+                $0.lastPathComponent != InboxStore.promptedName
+                    && $0.lastPathComponent != InboxStore.noticesName
+            }
         #expect(files.isEmpty, "inbox not fully cleared: \(files.map(\.lastPathComponent))")
 
         // No re-prompt for an emptied inbox.
@@ -210,6 +216,47 @@ import VaultCore
         _ = await TestSupport.waitUntil { fx.store.phase == .unlocked(importing: false) }
         _ = await TestSupport.waitUntil { fx.store.items.count + committed >= 3 }
         #expect(fx.store.items.count + committed >= 3)
+    }
+
+    /// Wave-001 claude-code #3 regression: decline SURVIVES relaunch —
+    /// the prompted ledger persists beside the items, so a fresh
+    /// process re-offers a declined batch only alongside NEW arrivals.
+    @Test func declineSurvivesRelaunch() async throws {
+        let fx = try await makeFixture()
+        defer { Task { await fx.destroy() } }
+        try await stage(["fixture-0024.jpg"], into: fx.inbox)
+        fx.store.discoverInbox()
+        #expect(fx.store.pendingInboxPrompt != nil)
+        fx.store.declineInboxPrompt()
+
+        // "Relaunch": a second store stack over the SAME inbox.
+        let container2 = try TestSupport.makeContainer()
+        defer { TestSupport.removeContainer(container2) }
+        let coordinator2 = VaultCoordinator(
+            container: container2, calibration: TestSupport.fastCalibration,
+            deviceKeyStore: TestDeviceKeyStore(
+                url: container2.deviceLocalDir.appendingPathComponent("test-device-key")),
+            deviceName: "app-test-device")
+        let defaults2 = UserDefaults(suiteName: "inbox-relaunch-\(UUID().uuidString)")!
+        let store2 = TestSupport.makeStore(
+            coordinator: coordinator2, container: container2, defaults: defaults2,
+            inbox: fx.inbox)
+        await store2.bootstrap()
+        _ = await TestSupport.waitUntil { store2.phase == .needsSetup }
+        store2.createGallery(password: UnlockedVault.password)
+        _ = await TestSupport.waitUntil { store2.phase == .unlocked(importing: false) }
+
+        // The declined batch does NOT re-prompt on the new process…
+        store2.discoverInbox()
+        #expect(store2.pendingInboxPrompt == nil)
+        #expect(store2.stagedInboxItems.count == 1)
+
+        // …until a NEW arrival joins it.
+        try await stage(["fixture-0026.jpg"], into: fx.inbox)
+        store2.discoverInbox()
+        let prompt = try #require(store2.pendingInboxPrompt)
+        #expect(prompt.items.count == 2)
+        await store2.coordinator.teardown()
     }
 
     /// Bootstrap releases orphaned claims (app died mid-import).
