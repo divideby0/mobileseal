@@ -1,7 +1,7 @@
 import XCTest
 
 /// Gate 2 — the scripted end-to-end on simulator: create gallery →
-/// import the committed fixture batch (110 mixed HEIC/JPEG + 1 forced
+/// import the committed fixture batch (112 mixed HEIC/JPEG + 1 forced
 /// failure, ≥100) through the real pipeline (fixture provider seam;
 /// the system picker gets a manual device smoke test) → grid renders
 /// from encrypted thumbnails → relaunch → unlock → grid restores →
@@ -57,7 +57,7 @@ final class E2EFlowUITests: XCTestCase {
             app.tapMoreMenuItem(label: "Import Fixtures", timeout: 60),
             "gallery (unlocked) never appeared after create")
 
-        // 110 healthy images (first carries the Live Photo pair) + 3
+        // 112 healthy images (first carries the Live Photo pair) + 3
         // videos (fast-start MP4, tail-moov MOV, unsupported-codec
         // MP4) + 1 corrupt (last): the summary sheet marks completion.
         let summary = app.otherElements["import-summary"]
@@ -65,12 +65,13 @@ final class E2EFlowUITests: XCTestCase {
         XCTAssertTrue(summaryShown, "import summary never appeared")
 
         // Failure visible in the summary (forced per-item failure):
-        // 113 imported (incl. both moov variants + the unsupported-
-        // but-authentic codec), the corrupt last item failed.
+        // 115 imported (incl. both moov variants + the unsupported-
+        // but-authentic codec, plus CED-16's embedded-thumbnail
+        // stills), the corrupt last item failed.
         let line = app.staticTexts["summary-line"]
         XCTAssertTrue(line.waitForExistence(timeout: 10))
         XCTAssertEqual(
-            line.label, "imported=113 skipped=0 failed=1 interrupted=false",
+            line.label, "imported=115 skipped=0 failed=1 interrupted=false",
             "batch summary mismatch")
         app.buttons["summary-done"].tap()
 

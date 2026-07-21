@@ -70,15 +70,15 @@ final class MigrationDeleteUITests: XCTestCase {
             "migrated grid should show exactly the 3 v0 originals; got \(String(describing: itemCount(app)))"
         )
 
-        // --- Import the committed fixture batch (adds 113 items incl.
+        // --- Import the committed fixture batch (adds 115 items incl.
         // playable videos for the restore-playback leg).
         XCTAssertTrue(app.tapMoreMenuItem(label: "Import Fixtures"))
         let summary = app.otherElements["import-summary"]
         XCTAssertTrue(summary.waitForExistence(timeout: 600), "import summary never appeared")
         app.buttons["summary-done"].tap()
         XCTAssertTrue(
-            waitUntil(timeout: 30) { itemCount(app) == 117 },
-            "expected 3 migrated + 114 stored imports (113 ok + 1 byte-exact undecodable); got \(String(describing: itemCount(app)))"
+            waitUntil(timeout: 30) { itemCount(app) == 119 },
+            "expected 3 migrated + 116 stored imports (115 ok + 1 byte-exact undecodable); got \(String(describing: itemCount(app)))"
         )
 
         // --- Pager single delete: the first playable VIDEO (so the
@@ -97,7 +97,7 @@ final class MigrationDeleteUITests: XCTestCase {
         XCTAssertTrue(pagerClose.waitForExistence(timeout: 10))
         pagerClose.tap()
         XCTAssertTrue(
-            waitUntil(timeout: 30) { itemCount(app) == 116 },
+            waitUntil(timeout: 30) { itemCount(app) == 118 },
             "pager delete did not hide the aggregate")
 
         // --- Grid multi-select bulk delete: two stills.
@@ -110,7 +110,7 @@ final class MigrationDeleteUITests: XCTestCase {
         XCTAssertTrue(confirmBulk.waitForExistence(timeout: 10), "bulk confirm missing")
         confirmBulk.tap()
         XCTAssertTrue(
-            waitUntil(timeout: 30) { itemCount(app) == 114 },
+            waitUntil(timeout: 30) { itemCount(app) == 116 },
             "bulk delete did not hide 2 aggregates")
 
         // --- Recently Deleted shows the 3 aggregates.
@@ -149,9 +149,9 @@ final class MigrationDeleteUITests: XCTestCase {
             waitUntil(timeout: 15) { rows.count == 1 }, "purge did not remove the row")
         app.buttons["recently-deleted-done"].tap()
 
-        // Restored video is back in the grid: 114 + 1 = 115.
+        // Restored video is back in the grid: 116 + 1 = 117.
         XCTAssertTrue(
-            waitUntil(timeout: 30) { itemCount(app) == 115 },
+            waitUntil(timeout: 30) { itemCount(app) == 117 },
             "restored aggregate did not rejoin the grid")
 
         // --- Relaunch (same container, no reset) → all states durable.
@@ -162,7 +162,7 @@ final class MigrationDeleteUITests: XCTestCase {
             app.collectionViews["photo-grid"].waitForExistence(timeout: 60),
             "grid did not restore after relaunch")
         XCTAssertTrue(
-            waitUntil(timeout: 30) { itemCount(app) == 115 },
+            waitUntil(timeout: 30) { itemCount(app) == 117 },
             "grid count not durable after relaunch; got \(String(describing: itemCount(app)))"
         )
         XCTAssertTrue(
