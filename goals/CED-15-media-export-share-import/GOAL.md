@@ -1,5 +1,5 @@
 ---
-status: promoted
+status: started
 created: 2026-07-20T22:46:50-05:00
 author: cedric
 stacked_on: CED-14-multiple-galleries
@@ -7,6 +7,7 @@ promoted: 2026-07-20T22:56:59-05:00
 issue_url: https://linear.app/cedric-personal/issue/CED-15/build-media-export-and-share-sheet-import
 linear_project: Mobileseal
 linear_project_id: cccebfd8-6d19-474b-852f-c87bf528dcf6
+started: 2026-07-21T00:06:10-05:00
 ---
 
 # Build Media Export and Share-Sheet Import
