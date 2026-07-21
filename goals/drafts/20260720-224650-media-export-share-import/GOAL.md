@@ -5,6 +5,8 @@ author: cedric
 stacked_on: CED-14-multiple-galleries
 ---
 
+# Build Media Export and Share-Sheet Import
+
 ## Problem
 
 The vault has import but no exit: nothing can leave (a trap, and the
