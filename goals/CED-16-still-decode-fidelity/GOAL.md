@@ -65,8 +65,9 @@ Sized XS.
 
 ## Executor notes
 
-- Stacked: diff base = CED-15's LOCKED head (recorded at launch);
-  never main.
+- Stacked: diff base = CED-15's LOCKED head —
+  `90ec3fe22a84a704bd0041b510fb7b573842909c` (locked 2026-07-21
+  01:30); never main.
 - Formatter scoped to THIS goal folder only.
 - Zero HITL. Keep the fix surgical — no tiling/progressive-zoom work
   (that's the streaming-still-decode fog item, not this goal).
