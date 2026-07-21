@@ -1,0 +1,51 @@
+  * The filename starts with "test"
+  * The filename contains "test." or "tests."
+  * Any directory in the file path is named: "doc", "docs", "test", "tests", "mock" or "mocks"
+  * Any directory in the file path has a name ending in "test" or "tests"
+
+00:51:30.103 INFO  Start fetching files for the text and secrets analysis
+00:51:30.111 INFO  Using Git CLI to retrieve dirty files
+00:51:30.123 INFO  Retrieving language associated files and files included via "sonar.text.inclusions" that are tracked by git
+00:51:30.128 INFO  Starting the text and secrets analysis
+00:51:30.129 INFO  33 source files to be analyzed for the text and secrets analysis
+00:51:30.175 INFO  33/33 source files have been analyzed for the text and secrets analysis
+00:51:30.178 INFO  Sensor TextAndSecretsSensor [text] (done) | time=251ms
+00:51:30.180 INFO  ------------- Run sensors on project
+00:51:30.249 INFO  Sensor Zero Coverage Sensor
+00:51:30.251 INFO  Sensor Zero Coverage Sensor (done) | time=2ms
+00:51:30.251 INFO  ------------- Gather SCA dependencies on project
+00:51:30.252 INFO  Dependency analysis skipped
+00:51:30.253 INFO  CPD Executor Calculating CPD for 0 files
+00:51:30.254 INFO  CPD Executor CPD calculation finished (done) | time=0ms
+00:51:30.280 INFO  SCM revision ID '49782464fc046a4aad11b08136196e18c9cb5bf5'
+00:51:30.353 INFO  Analysis report generated in 77ms, dir size=259.1 kB
+00:51:30.362 INFO  Analysis report compressed in 9ms, zip size=27.1 kB
+00:51:30.492 INFO  Analysis report uploaded in 129ms
+00:51:30.492 INFO  ANALYSIS SUCCESSFUL, you can find the results at: http://localhost:9283/dashboard?id=mobileseal-CED-15-media-export-share-import
+00:51:30.492 INFO  Note that you will be able to access the updated dashboard once the server has processed the submitted analysis report
+00:51:30.492 INFO  More about the report processing at http://localhost:9283/api/ce/task?id=2b83a170-e956-4250-891a-56e18089306b
+00:51:30.498 INFO  Analysis total time: 6.916 s
+00:51:30.498 INFO  SonarScanner Engine completed successfully
+00:51:32.680 INFO  EXECUTION SUCCESS
+00:51:32.681 INFO  Total time: 12.414s
+
+\u2500\u2500 waiting for server-side processing (compute task 2b83a170-e956-4250-891a-56e18089306b) \u2500\u2500
+ce poll 1: SUCCESS
+compute task 2b83a170-e956-4250-891a-56e18089306b processed
+
+\u2500\u2500 open issues (also written to FINDINGS.md) \u2500\u2500
+# SonarQube findings
+
+Ephemeral project: mobileseal-CED-15-media-export-share-import (per-branch isolation, EVA-11;
+deleted at merge cleanup). Scan processed as compute task 2b83a170-e956-4250-891a-56e18089306b.
+
+Scope note: this is the OPEN snapshot of that project after scanning
+this checkout; changed files outside the scan sources are not covered.
+
+total open: 0
+
+REVIEW COMPLETE
+=== SONARQUBE REVIEWER DONE ===
+
+ openclaw  .../CED-15-media-export-share-import   CED-15-media-export-share-import ?  ⎈ gke-spanland-prod   00:51 
+❯

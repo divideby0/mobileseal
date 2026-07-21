@@ -1,0 +1,51 @@
+    28 +
+    29 +Evidence: `ProviderInboxAttachment.loadFileRepresentation` discards the `Progress` returned by `NSItemProvider` at `App/ShareInbox/InboxWriter.swift:35`. `loadCopy` uses
+         `withCheckedThrowingContinuation` at `:255-278`, which has no cancellation handler, so canceling the Swift task neither cancels the provider request nor resumes the con
+        tinuation. `ShareViewController.cancel` then calls `stagingTask?.cancel()` and immediately calls `extensionContext?.cancelRequest` at `App/MobileSealShare/ShareViewContr
+        oller.swift:115-121`; it does not await the writer. The unit test at `App/MobileSealTests/InboxProtocolTests.swift:387-404` awaits `task.value` for roughly the fake prov
+        ider's full delay, which is not what the production Cancel button does.
+    30 +
+    31 +Why it matters: the extension process may be terminated as soon as the request is canceled, before `stageOne` reaches its cleanup catches. A cancel during copy/hash can
+        strand fresh incomplete plaintext until the 15-minute stale sweep, and a cancel after the last cancellation check can still publish a manifest, making an item the user c
+        anceled appear in the app. This contradicts the goal's typed cancellation-and-cleanup contract.
+    32 +
+    33 +Suggested fix: make the attachment seam return a cancelable handle, bridge it with `withTaskCancellationHandler`, and ensure a continuation is resumed exactly once on ca
+        ncellation/provider completion. In the view controller, disable the UI, cancel the task, await its cleanup result, and only then call `cancelRequest`. Add a controller-l
+        evel test that exercises the actual Cancel action and asserts the extension context is completed only after the inbox contains neither committed nor incomplete files.
+    34 +
+    35 +## 4. Batch claiming is not atomic on disk
+    36 +
+    37 +Evidence: `InboxStore.claim(itemIDs:galleryID:)` writes one `.claim.json` per item in a plain loop at `App/ShareInbox/InboxStore.swift:213-223`. If the second or later a
+        tomic write fails (for example under low disk), earlier claim markers remain. `VaultStore.acceptInboxImport` returns `false` from the switchboard body on that error and
+        clears `activeInboxClaim` at `App/MobileSeal/VaultStore.swift:330-342`, but it never releases the markers already written. Subsequent scans classify those items as claim
+        ed and omit them from prompts/settings; recovery occurs only if the process is relaunched and `sweepAtLaunch` releases them.
+    38 +
+    39 +Why it matters: accepting a prompt is specified as one atomically gallery-bound batch. A recoverable I/O error instead splits the batch and makes valid staged items disa
+        ppear for the rest of the session.
+    40 +
+    41 +Suggested fix: represent the whole batch with one atomically renamed claim record containing the gallery and item IDs, or implement rollback of every marker written befo
+        re an error (plus launch recovery for a crash during rollback). Keep `activeInboxClaim` until rollback has completed, and add an injected-failure test on the Nth claim w
+        rite.
+    42 +
+    43 +## 5. Oldest-first expiry is not totally ordered
+    44 +
+    45 +Evidence: manifests encode `committedAt` using `JSONEncoder.DateEncodingStrategy.iso8601` at `App/ShareInbox/InboxManifest.swift:111-115`. The tests themselves note this
+         representation's second granularity (`App/MobileSealTests/InboxProtocolTests.swift:243`). `InboxStore.scan` sorts only on the decoded `committedAt` at `App/ShareInbox/I
+        nboxStore.swift:165`, while manifests first pass through a dictionary. Attachments staged serially in a normal batch commonly commit within the same second, so after a r
+        escan their dates tie and the item selected by `removeFirst()` for quota expiry is filesystem/dictionary-order dependent rather than the oldest.
+    46 +
+    47 +Why it matters: quota expiry deletes user-provided staged media. Even when deletion is expected, choosing an arbitrary member rather than the promised oldest one makes r
+        etention behavior nondeterministic and can discard a newer item first.
+    48 +
+    49 +Suggested fix: persist fractional-second dates (custom ISO-8601 formatting) and add a stable collision-resistant tie-breaker, such as a monotonic sequence allocated insi
+        de the same quota transaction or `(committedAt, itemID)` with a documented ordering. Test multiple commits within one second and assert a deterministic oldest-first evic
+        tion.
+    50 +
+    51 +REVIEW COMPLETE
+
+• Working (7m 18s • esc to interrupt)
+
+
+› Use /skills to list available skills
+
+  gpt-5.6-sol high · /private/tmp/evie-review-CED-15-codex-eb734379-49POtC/tree

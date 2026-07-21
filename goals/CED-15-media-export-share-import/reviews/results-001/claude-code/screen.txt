@@ -1,0 +1,51 @@
+
+⏺ Let me check the custody canary test extension (gate 4) and skim the export test to verify claimed coverage.
+
+  Ran 1 shell command
+
+⏺ I have a thorough understanding now. Let me verify a couple of specifics before finalizing — the live-photo representation directory assumption and the pager button guard.
+
+  Ran 1 shell command
+
+⏺ I have completed my analysis. Let me write the findings.
+
+⏺ Write(~/src/divideby0/mobileseal/.worktrees/CED-15-media-export-share-import/goals/CED-15-media-export-share-import/reviews/results-001/claude-code/FINDINGS.md)
+  ⎿  Wrote 152 lines to ../../../../Users/openclaw/src/divideby0/mobileseal/.worktrees/CED-15-media-export-share-import/goals/CED-15-media-export-share-import/reviews/resul
+     ts-001/claude-code/FINDINGS.md
+       1 # Blind code review — CED-15 media export + share-sheet import (claude-code)
+       2
+       3 ## Verdict
+       4
+       5 This is a strong, carefully-reasoned change that implements both doors
+       6 (export via `UIActivityViewController`, import via a non-unlocking share
+       7 extension) with genuinely thorough custody discipline. The hard parts —
+       8 the export lock/background teardown race, the atomic manifest-last inbox
+       9 commit, the launch sweep that spares committed items, the exactly-once
+      10 prompt bound to the live gallery through the CED-14 switch authority,
+     … +145 lines
+
+⏺ I've completed the blind code review and written my findings to the required path.
+
+  Summary of the review:
+
+  The CED-15 change (media export + share-sheet import) is a strong, carefully-reasoned implementation. I traced the custody-critical paths — the export lock/background teardown
+  with its actor-reentrancy windows, the atomic manifest-last inbox commit, the launch sweep that spares committed items, the exactly-once prompt bound to the live gallery
+  through the CED-14 switch authority, and the BLAKE2b integrity re-validation before import — and found them internally consistent and correct. The VaultCore MediaHashing unit
+  tests pass (known-vector verified).
+
+  No blockers or major defects. Four findings, all minor/nit:
+
+  1. Live-Photo copies bypass the low-disk guard (minor) — diskCheck sizes the bundle directory node, not its recursive contents, so the typed .diskFull refusal promised by gate
+  3 doesn't fire for Live Photos.
+  2. Cross-process quota expiry can race a main-app claim (minor) — no inter-process locking; benign failure mode (typed integrity reject, no leak/crash), but a real TOCTOU
+  worth noting.
+  3. Declined inbox items re-prompt after relaunch (minor) — the "already prompted" set is session-only, deviating from the exactly-once contract.
+  4. Pager Share button lacks the exportActive guard (nit) — cosmetic inconsistency with the grid affordance.
+
+                                                                                                                                                             ◎ /goal active (8m)
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Model: Opus 4.8  55004aa2  Ctx: 128.3k  13.0%  Session: 8m  Out: 114.6k  Total: 4.8M 
+   cwd: /private/tmp/evie-review-CED-15-claude-code-eb734379-UvmAOe/tree  ⎇ no git  (+0,-0) 
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent

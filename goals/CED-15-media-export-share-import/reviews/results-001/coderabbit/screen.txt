@@ -1,0 +1,51 @@
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @App/MobileSeal/Import/InboxMediaProvider.swift around lines 23 - 41,
+  After FileManager.default.copyItem succeeds in the staging flow,
+  revalidate dest with Self.length and MediaHashing.blake2b256Hex before
+  appending StagedPart. Compare both values against part.byteLength and
+  part.blake2b256, throwing MediaProviderError.integrityMismatch on
+  mismatch; keep the existing source validation and copy error handling
+  unchanged.
+
+
+────────────────────────────────────────────────────────────────────────
+  minor [Functional Correctness]
+  → Tests/VaultCoreTests/MediaHashingTests.swift:24-28
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @Tests/VaultCoreTests/MediaHashingTests.swift around lines 24 - 28,
+  Update the data-generation loop in the media hashing test to create more
+  than 1,048,576 bytes, ensuring the input crosses the 1 MiB streaming
+  buffer boundary and exercises multiple read iterations. Preserve the
+  existing deterministic byte pattern.
+
+
+────────────────────────────────────────────────────────────────────────
+  minor [Functional Correctness]
+  → App/ShareInbox/InboxWriter.swift:188-232
+
+  ▶ Prompt for AI agent
+  Verify each finding against current code. Fix only still-valid issues,
+  skip the rest with a brief reason, keep changes minimal, and validate.
+
+  In @App/ShareInbox/InboxWriter.swift around lines 188 - 232, Update
+  stageLivePhotoBundle to track payload destinations successfully moved
+  during the loop and remove those staged files when a later diskCheck or
+  moveItem operation throws, before rethrowing the original error. Keep
+  cleanup limited to payloads created by this invocation so the stageOne
+  fallback can reuse the payload names without masking the original failure.
+
+captured 4386 bytes of prompts
+
+REVIEW COMPLETE
+=== CODERABBIT REVIEWER DONE ===
+
+ openclaw  .../CED-15-media-export-share-import   CED-15-media-export-share-import ?  ⎈ gke-spanland-prod   01:10 
+❯
