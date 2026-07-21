@@ -28,6 +28,12 @@ final class MediaPageViewController: UIViewController {
     private let scrollView = UIScrollView()
     private let imageView = UIImageView()
     private var decodeTask: Task<Void, Never>?
+    /// Full-res decode state (wave-001 claude-code #1): the bounded
+    /// decode is ~44 MiB at the 4096 ceiling, so it runs only for the
+    /// LANDED page — preloaded neighbors keep their poster until they
+    /// land, preserving the one-full-still budget the ceiling assumes.
+    private var fullStillTask: Task<Void, Never>?
+    private var fullStillDecoded = false
 
     // Video presentation.
     private var player: AVPlayer?
@@ -58,6 +64,7 @@ final class MediaPageViewController: UIViewController {
 
     deinit {
         decodeTask?.cancel()
+        fullStillTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -95,16 +102,16 @@ final class MediaPageViewController: UIViewController {
                 lessThanOrEqualTo: view.trailingAnchor, constant: -24),
         ])
 
-        // Poster first (from the encrypted thumbnail cache), so every
-        // page has content the instant it scrolls in.
+        // Poster only (from the encrypted thumbnail cache), so every
+        // page has content the instant it scrolls in. The full-res
+        // decode waits for didLand — see fullStillTask.
         let target = item
         decodeTask = Task { [weak self] in
-            if let poster = await self?.store.thumbnails.image(for: target) {
-                if Task.isCancelled { return }
-                self?.imageView.image = poster
-            }
-            guard let self, !target.isVideo else { return }
-            await self.decodeFullStill()
+            guard let poster = await self?.store.thumbnails.image(for: target),
+                !Task.isCancelled
+            else { return }
+            guard let self, !self.fullStillDecoded else { return }
+            self.imageView.image = poster
         }
 
         if item.isVideo {
@@ -131,18 +138,34 @@ final class MediaPageViewController: UIViewController {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         decodeTask?.cancel()
+        fullStillTask?.cancel()
+        fullStillTask = nil
         detachPlayer()
     }
 
     // MARK: - landing (the one-active-player entry point)
 
     /// The pager landed on this page: start whatever playback the
-    /// item calls for (grill Q3).
+    /// item calls for (grill Q3), and — for stills — the bounded
+    /// full-res decode (wave-001 claude-code #1: landed page only).
     func didLand() {
         if item.isVideo {
             startVideoPlayback()
-        } else if item.livePhotoVideoID != nil, !motionPlayed {
-            playLivePhotoMotionOnce()
+        } else {
+            if item.livePhotoVideoID != nil, !motionPlayed {
+                playLivePhotoMotionOnce()
+            }
+            startFullStillDecode()
+        }
+    }
+
+    /// Idempotent per landing: re-landing retries only if the full
+    /// decode never succeeded (its task is cancelled on swipe-away).
+    private func startFullStillDecode() {
+        guard !fullStillDecoded, fullStillTask == nil else { return }
+        fullStillTask = Task { [weak self] in
+            await self?.decodeFullStill()
+            self?.fullStillTask = nil
         }
     }
 
@@ -178,6 +201,7 @@ final class MediaPageViewController: UIViewController {
         guard !Task.isCancelled else { return }
         switch result {
         case .success(let decoded?):
+            fullStillDecoded = true
             imageView.image = decoded
         case .success(nil):
             showState("The original could not be decoded. The stored bytes are intact.")
